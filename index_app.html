@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copa Dorada - Sistema de Gestión de Evento Deportivo</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        .gradient-header {
+            background: linear-gradient(135deg, #4f46e5 0%, #10b981 100%);
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .zebra-row:nth-child(even) {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+        @media (prefers-color-scheme: dark) {
+            .zebra-row:nth-child(even) {
+                background-color: rgba(255, 255, 255, 0.02);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback } = React;
+        const { Calendar, Users, Award, ChevronsRight, Loader, Save, CheckCircle } = lucide;
+
+        // Initial data constants
+        const EQUIPOS_A = ['Dorado Citty', 'CASAGRANDE', 'ATLETICO CHIVAO', 'GALACTICOS FC', 'El Dorado 1970'];
+        const EQUIPOS_B = ['SAN JOSE', 'ALASKA FC', 'PARURUAKA', 'ESEQUIBO FC', 'SANTA RITA', 'CERVECEROS'];
+        
+        const JORNADA_2_PARTIDOS = [
+            { id: 'j2-1', grupo: 'A', local: 'Dorado Citty', visitante: 'CASAGRANDE', cancha: 'Estadio El Dorado', dia: 'VIE.', fecha: '31-05-24', hora: '21:00', scoreLocal: null, scoreVisitante: null, played: false },
+            { id: 'j2-2', grupo: 'A', local: 'ATLETICO CHIVAO', visitante: 'GALACTICOS FC', cancha: 'Estadio El Dorado', dia: 'DOM.', fecha: '02-06-24', hora: '21:00', scoreLocal: null, scoreVisitante: null, played: false },
+            { id: 'j2-4', grupo: 'B', local: 'SAN JOSE', visitante: 'ALASKA FC', cancha: 'Estadio El Dorado', dia: 'SAB.', fecha: '01-06-24', hora: '20:00', scoreLocal: null, scoreVisitante: null, played: false },
+            { id: 'j2-5', grupo: 'B', local: 'PARURUAKA', visitante: 'ESEQUIBO FC', cancha: 'Estadio El Dorado', dia: 'DOM.', fecha: '02-06-24', hora: '17:00', scoreLocal: null, scoreVisitante: null, played: false },
+            { id: 'j2-6', grupo: 'B', local: 'SANTA RITA', visitante: 'CERVECEROS', cancha: 'Estadio El Dorado', dia: 'SAB.', fecha: '01-06-24', hora: '16:00', scoreLocal: null, scoreVisitante: null, played: false },
+            { id: 'j2-7', grupo: 'C', local: 'MINESUR', visitante: 'ROSCIO ACTIVA', cancha: 'Estadio El Dorado', dia: 'SAB.', fecha: '01-06-24', hora: '18:00', scoreLocal: null, scoreVisitante: null, played: false },
+            { id: 'j2-8', grupo: 'C', local: 'MOTOS AVA TUMEREMO', visitante: 'EL PLACER', cancha: 'Estadio El Dorado', dia: 'VIE.', fecha: '31-05-24', hora: '17:00', scoreLocal: null, scoreVisitante: null, played: false },
+            { id: 'j2-9', grupo: 'C', local: 'ATLETIC YURUAN', visitante: 'VAPOR', cancha: 'Estadio El Dorado', dia: 'DOM.', fecha: '02-06-24', hora: '19:00', scoreLocal: null, scoreVisitante: null, played: false }
+        ];
+
+        const CALENDARIO_A = [
+            { jornada: 1, partidos: [{ local: 'Dorado Citty', visitante: 'CASAGRANDE' }, { local: 'ATLETICO CHIVAO', visitante: 'GALACTICOS FC' }, { local: 'El Dorado 1970', visitante: 'DESCANSO' }] },
+            { jornada: 2, partidos: [{ local: 'Dorado Citty', visitante: 'GALACTICOS FC' }, { local: 'CASAGRANDE', visitante: 'El Dorado 1970' }, { local: 'DESCANSO', visitante: 'ATLETICO CHIVAO' }] },
+            { jornada: 3, partidos: [{ local: 'ATLETICO CHIVAO', visitante: 'CASAGRANDE' }, { local: 'El Dorado 1970', visitante: 'Dorado Citty' }, { local: 'DESCANSO', visitante: 'GALACTICOS FC' }] }
+        ];
+
+        const CALENDARIO_B = [
+            { jornada: 1, partidos: [{ local: 'SAN JOSE', visitante: 'ALASKA FC' }, { local: 'PARURUAKA', visitante: 'ESEQUIBO FC' }, { local: 'SANTA RITA', visitante: 'CERVECEROS' }] },
+            { jornada: 2, partidos: [{ local: 'ALASKA FC', visitante: 'PARURUAKA' }, { local: 'ESEQUIBO FC', visitante: 'SANTA RITA' }, { local: 'CERVECEROS', visitante: 'SAN JOSE' }] },
+            { jornada: 3, partidos: [{ local: 'SAN JOSE', visitante: 'PARURUAKA' }, { local: 'SANTA RITA', visitante: 'ALASKA FC' }, { local: 'CERVECEROS', visitante: 'ESEQUIBO FC' }] }
+        ];
+
+        // Firebase globals (will be set from window if available)
+        let firebaseApp = null;
+        let db = null;
+        let auth = null;
+        let currentUserId = null;
+
+        // Initialize Firebase
+        const initializeFirebase = async () => {
+            try {
+                const config = window.__firebase_config || {
+                    apiKey: "demo-key",
+                    authDomain: "demo.firebaseapp.com",
+                    projectId: "demo-project"
+                };
+                
+                const appId = window.__app_id || 'demo-app';
+                
+                if (!firebase.apps.length) {
+                    firebaseApp = firebase.initializeApp(config);
+                }
+                
+                db = firebase.firestore();
+                auth = firebase.auth();
+                
+                // Authenticate
+                if (window.__initial_auth_token) {
+                    try {
+                        const userCredential = await auth.signInWithCustomToken(window.__initial_auth_token);
+                        currentUserId = userCredential.user.uid;
+                    } catch (error) {
+                        console.error('Custom token auth failed:', error);
+                        const userCredential = await auth.signInAnonymously();
+                        currentUserId = userCredential.user.uid;
+                    }
+                } else {
+                    const userCredential = await auth.signInAnonymously();
+                    currentUserId = userCredential.user.uid;
+                }
+                
+                return { db, userId: currentUserId, appId };
+            } catch (error) {
+                console.error('Firebase initialization error:', error);
+                throw error;
+            }
+        };
+
+        // Initialize tournament data if needed
+        const initializeTournamentData = async (db, userId, appId) => {
+            const configRef = db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('tournament_config').doc('data');
+            
+            const configDoc = await configRef.get();
+            
+            if (!configDoc.exists || !configDoc.data().initialized) {
+                console.log('Initializing tournament data...');
+                
+                // Set config
+                await configRef.set({
+                    equiposA: EQUIPOS_A,
+                    equiposB: EQUIPOS_B,
+                    calendarioA: CALENDARIO_A,
+                    calendarioB: CALENDARIO_B,
+                    initialized: true
+                });
+                
+                // Initialize jornada 2 matches
+                const batch = db.batch();
+                JORNADA_2_PARTIDOS.forEach(match => {
+                    const matchRef = db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('jornada_2').doc(match.id);
+                    batch.set(matchRef, match);
+                });
+                await batch.commit();
+                
+                // Initialize empty standings tables
+                const tablaAData = EQUIPOS_A.map(nombre => ({
+                    nombre,
+                    pts: 0,
+                    pj: 0,
+                    g: 0,
+                    e: 0,
+                    p: 0,
+                    gf: 0,
+                    gc: 0,
+                    dif: 0,
+                    ga: 0
+                }));
+                
+                const tablaBData = EQUIPOS_B.map(nombre => ({
+                    nombre,
+                    pts: 0,
+                    pj: 0,
+                    g: 0,
+                    e: 0,
+                    p: 0,
+                    gf: 0,
+                    gc: 0,
+                    dif: 0,
+                    ga: 0
+                }));
+                
+                await db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('tablas').doc('grupo_A').set({ teams: tablaAData });
+                await db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('tablas').doc('grupo_B').set({ teams: tablaBData });
+                
+                console.log('Tournament data initialized successfully');
+            }
+        };
+
+        // Update match and table
+        const updateMatchAndTable = async (db, userId, appId, matchId, scoreLocal, scoreVisitante) => {
+            try {
+                const matchRef = db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('jornada_2').doc(matchId);
+                const matchDoc = await matchRef.get();
+                
+                if (!matchDoc.exists) {
+                    throw new Error('Match not found');
+                }
+                
+                const matchData = matchDoc.data();
+                const { grupo, local, visitante } = matchData;
+                
+                // Validate scores
+                const localScore = parseInt(scoreLocal);
+                const visitanteScore = parseInt(scoreVisitante);
+                
+                if (isNaN(localScore) || isNaN(visitanteScore) || localScore < 0 || visitanteScore < 0) {
+                    throw new Error('Invalid scores');
+                }
+                
+                // Group C matches don't affect tables
+                if (grupo === 'C') {
+                    await matchRef.update({
+                        scoreLocal: localScore,
+                        scoreVisitante: visitanteScore,
+                        played: true
+                    });
+                    return;
+                }
+                
+                // Skip if DESCANSO
+                if (local === 'DESCANSO' || visitante === 'DESCANSO') {
+                    await matchRef.update({
+                        scoreLocal: localScore,
+                        scoreVisitante: visitanteScore,
+                        played: true
+                    });
+                    return;
+                }
+                
+                // Update using transaction
+                await db.runTransaction(async (transaction) => {
+                    const tablaRef = db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('tablas').doc(`grupo_${grupo}`);
+                    const tablaDoc = await transaction.get(tablaRef);
+                    
+                    if (!tablaDoc.exists) {
+                        throw new Error('Table not found');
+                    }
+                    
+                    let teams = tablaDoc.data().teams;
+                    
+                    // Find teams
+                    const localTeamIndex = teams.findIndex(t => t.nombre === local);
+                    const visitanteTeamIndex = teams.findIndex(t => t.nombre === visitante);
+                    
+                    if (localTeamIndex === -1 || visitanteTeamIndex === -1) {
+                        throw new Error('Team not found in table');
+                    }
+                    
+                    const localTeam = { ...teams[localTeamIndex] };
+                    const visitanteTeam = { ...teams[visitanteTeamIndex] };
+                    
+                    // Remove old stats if match was already played
+                    if (matchData.played && matchData.scoreLocal !== null && matchData.scoreVisitante !== null) {
+                        const oldLocalScore = matchData.scoreLocal;
+                        const oldVisitanteScore = matchData.scoreVisitante;
+                        
+                        localTeam.pj--;
+                        localTeam.gf -= oldLocalScore;
+                        localTeam.gc -= oldVisitanteScore;
+                        visitanteTeam.pj--;
+                        visitanteTeam.gf -= oldVisitanteScore;
+                        visitanteTeam.gc -= oldLocalScore;
+                        
+                        if (oldLocalScore > oldVisitanteScore) {
+                            localTeam.g--;
+                            localTeam.pts -= 3;
+                            visitanteTeam.p--;
+                        } else if (oldLocalScore < oldVisitanteScore) {
+                            localTeam.p--;
+                            visitanteTeam.g--;
+                            visitanteTeam.pts -= 3;
+                        } else {
+                            localTeam.e--;
+                            localTeam.pts--;
+                            visitanteTeam.e--;
+                            visitanteTeam.pts--;
+                        }
+                    }
+                    
+                    // Add new stats
+                    localTeam.pj++;
+                    localTeam.gf += localScore;
+                    localTeam.gc += visitanteScore;
+                    visitanteTeam.pj++;
+                    visitanteTeam.gf += visitanteScore;
+                    visitanteTeam.gc += localScore;
+                    
+                    if (localScore > visitanteScore) {
+                        localTeam.g++;
+                        localTeam.pts += 3;
+                        visitanteTeam.p++;
+                    } else if (localScore < visitanteScore) {
+                        localTeam.p++;
+                        visitanteTeam.g++;
+                        visitanteTeam.pts += 3;
+                    } else {
+                        localTeam.e++;
+                        localTeam.pts++;
+                        visitanteTeam.e++;
+                        visitanteTeam.pts++;
+                    }
+                    
+                    localTeam.dif = localTeam.gf - localTeam.gc;
+                    visitanteTeam.dif = visitanteTeam.gf - visitanteTeam.gc;
+                    
+                    teams[localTeamIndex] = localTeam;
+                    teams[visitanteTeamIndex] = visitanteTeam;
+                    
+                    // Update table
+                    transaction.update(tablaRef, { teams });
+                    
+                    // Update match
+                    transaction.update(matchRef, {
+                        scoreLocal: localScore,
+                        scoreVisitante: visitanteScore,
+                        played: true
+                    });
+                });
+                
+                console.log('Match and table updated successfully');
+            } catch (error) {
+                console.error('Error updating match and table:', error);
+                throw error;
+            }
+        };
+
+        // Match Card Component
+        const MatchCard = ({ match, onSave, db, userId, appId }) => {
+            const [localScore, setLocalScore] = useState(match.scoreLocal !== null ? match.scoreLocal : '');
+            const [visitanteScore, setVisitanteScore] = useState(match.scoreVisitante !== null ? match.scoreVisitante : '');
+            const [saving, setSaving] = useState(false);
+            const [saved, setSaved] = useState(false);
+            
+            useEffect(() => {
+                setLocalScore(match.scoreLocal !== null ? match.scoreLocal : '');
+                setVisitanteScore(match.scoreVisitante !== null ? match.scoreVisitante : '');
+            }, [match.scoreLocal, match.scoreVisitante]);
+            
+            const handleSave = async () => {
+                if (localScore === '' || visitanteScore === '') {
+                    alert('Por favor ingrese ambos marcadores');
+                    return;
+                }
+                
+                setSaving(true);
+                try {
+                    await updateMatchAndTable(db, userId, appId, match.id, localScore, visitanteScore);
+                    setSaved(true);
+                    setTimeout(() => setSaved(false), 3000);
+                } catch (error) {
+                    alert('Error al guardar: ' + error.message);
+                } finally {
+                    setSaving(false);
+                }
+            };
+            
+            const groupColors = {
+                'A': { border: 'border-indigo-500', text: 'text-indigo-600', bg: 'bg-indigo-50' },
+                'B': { border: 'border-green-500', text: 'text-green-600', bg: 'bg-green-50' },
+                'C': { border: 'border-gray-500', text: 'text-gray-600', bg: 'bg-gray-50' }
+            };
+            
+            const colors = groupColors[match.grupo] || groupColors['C'];
+            
+            return React.createElement('div', { 
+                className: `bg-white rounded-xl shadow-md border-l-4 ${colors.border} p-4 hover:shadow-lg transition-all duration-300`
+            }, 
+                React.createElement('div', { className: 'flex items-center justify-between mb-3' },
+                    React.createElement('span', { className: `px-3 py-1 ${colors.bg} ${colors.text} rounded-full text-sm font-semibold` }, `Grupo ${match.grupo}`),
+                    React.createElement('div', { className: 'flex items-center gap-2 text-gray-500 text-sm' },
+                        React.createElement(Calendar, { size: 16 }),
+                        React.createElement('span', null, `${match.dia} ${match.fecha} - ${match.hora}`)
+                    )
+                ),
+                React.createElement('div', { className: 'text-sm text-gray-600 mb-3' },
+                    React.createElement('span', { className: 'font-medium' }, match.cancha)
+                ),
+                React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-5 gap-4 items-center' },
+                    React.createElement('div', { className: 'md:col-span-2 text-right' },
+                        React.createElement('span', { className: 'font-semibold text-gray-800' }, match.local)
+                    ),
+                    React.createElement('div', { className: 'flex items-center justify-center gap-2' },
+                        React.createElement('input', {
+                            type: 'number',
+                            min: '0',
+                            value: localScore,
+                            onChange: (e) => setLocalScore(e.target.value),
+                            className: 'w-16 px-2 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                            placeholder: '0'
+                        }),
+                        React.createElement(ChevronsRight, { size: 20, className: 'text-gray-400' }),
+                        React.createElement('input', {
+                            type: 'number',
+                            min: '0',
+                            value: visitanteScore,
+                            onChange: (e) => setVisitanteScore(e.target.value),
+                            className: 'w-16 px-2 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                            placeholder: '0'
+                        })
+                    ),
+                    React.createElement('div', { className: 'md:col-span-2 text-left' },
+                        React.createElement('span', { className: 'font-semibold text-gray-800' }, match.visitante)
+                    )
+                ),
+                React.createElement('div', { className: 'mt-4 flex justify-center' },
+                    React.createElement('button', {
+                        onClick: handleSave,
+                        disabled: saving || saved,
+                        className: `px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center gap-2 ${
+                            saved ? 'bg-green-500 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`
+                    },
+                        saving && React.createElement(Loader, { size: 16, className: 'animate-spin' }),
+                        saved && React.createElement(CheckCircle, { size: 16 }),
+                        !saving && !saved && React.createElement(Save, { size: 16 }),
+                        React.createElement('span', null, saving ? 'Guardando...' : saved ? 'Guardado' : 'Guardar')
+                    )
+                )
+            );
+        };
+
+        // Programacion Jornada Component
+        const ProgramacionJornada = ({ db, userId, appId }) => {
+            const [matches, setMatches] = useState([]);
+            const [loading, setLoading] = useState(true);
+            
+            useEffect(() => {
+                if (!db || !userId || !appId) return;
+                
+                const unsubscribe = db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('jornada_2')
+                    .onSnapshot(snapshot => {
+                        const matchesData = [];
+                        snapshot.forEach(doc => {
+                            matchesData.push({ ...doc.data(), id: doc.id });
+                        });
+                        setMatches(matchesData);
+                        setLoading(false);
+                    }, error => {
+                        console.error('Error loading matches:', error);
+                        setLoading(false);
+                    });
+                
+                return () => unsubscribe();
+            }, [db, userId, appId]);
+            
+            if (loading) {
+                return React.createElement('div', { className: 'flex items-center justify-center py-12' },
+                    React.createElement(Loader, { size: 32, className: 'animate-spin text-indigo-600' }),
+                    React.createElement('span', { className: 'ml-3 text-gray-600' }, 'Cargando partidos...')
+                );
+            }
+            
+            return React.createElement('div', { className: 'space-y-4' },
+                React.createElement('h2', { className: 'text-2xl font-bold text-gray-800 mb-6' }, 'Jornada 2 - Resultados'),
+                matches.map(match => 
+                    React.createElement(MatchCard, { 
+                        key: match.id, 
+                        match, 
+                        db, 
+                        userId, 
+                        appId 
+                    })
+                )
+            );
+        };
+
+        // Calendario Grupo Component
+        const CalendarioGrupo = ({ grupo, db, userId, appId }) => {
+            const [calendario, setCalendario] = useState([]);
+            const [selectedJornada, setSelectedJornada] = useState(1);
+            const [loading, setLoading] = useState(true);
+            
+            useEffect(() => {
+                if (!db || !userId || !appId) return;
+                
+                const unsubscribe = db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('tournament_config').doc('data')
+                    .onSnapshot(snapshot => {
+                        if (snapshot.exists) {
+                            const data = snapshot.data();
+                            const cal = grupo === 'A' ? data.calendarioA : data.calendarioB;
+                            setCalendario(cal || []);
+                        }
+                        setLoading(false);
+                    }, error => {
+                        console.error('Error loading calendario:', error);
+                        setLoading(false);
+                    });
+                
+                return () => unsubscribe();
+            }, [db, userId, appId, grupo]);
+            
+            if (loading) {
+                return React.createElement('div', { className: 'flex items-center justify-center py-12' },
+                    React.createElement(Loader, { size: 32, className: 'animate-spin text-indigo-600' })
+                );
+            }
+            
+            const jornadaData = calendario.find(j => j.jornada === selectedJornada);
+            
+            return React.createElement('div', { className: 'space-y-6' },
+                React.createElement('div', { className: 'flex flex-wrap gap-3 mb-6' },
+                    calendario.map(j => 
+                        React.createElement('button', {
+                            key: j.jornada,
+                            onClick: () => setSelectedJornada(j.jornada),
+                            className: `px-6 py-2 rounded-lg font-medium transition-all duration-300 ${
+                                selectedJornada === j.jornada 
+                                    ? 'bg-indigo-600 text-white shadow-lg' 
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 shadow-md'
+                            }`
+                        }, `Jornada ${j.jornada}`)
+                    )
+                ),
+                jornadaData && React.createElement('div', { className: 'bg-white rounded-xl shadow-lg p-6' },
+                    React.createElement('h3', { className: 'text-xl font-bold text-gray-800 mb-4' }, `Jornada ${jornadaData.jornada}`),
+                    React.createElement('div', { className: 'space-y-3' },
+                        jornadaData.partidos.map((partido, idx) => 
+                            React.createElement('div', {
+                                key: idx,
+                                className: 'flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors'
+                            },
+                                React.createElement('span', { className: 'font-medium text-gray-800 flex-1 text-right mr-4' }, partido.local),
+                                React.createElement('span', { className: 'text-gray-400 font-bold' }, 'VS'),
+                                React.createElement('span', { className: 'font-medium text-gray-800 flex-1 text-left ml-4' }, partido.visitante)
+                            )
+                        )
+                    )
+                )
+            );
+        };
+
+        // Tabla Posiciones Component
+        const TablaPosiciones = ({ grupo, db, userId, appId }) => {
+            const [teams, setTeams] = useState([]);
+            const [loading, setLoading] = useState(true);
+            
+            useEffect(() => {
+                if (!db || !userId || !appId) return;
+                
+                const unsubscribe = db.collection('artifacts').doc(appId).collection('users').doc(userId).collection('tablas').doc(`grupo_${grupo}`)
+                    .onSnapshot(snapshot => {
+                        if (snapshot.exists) {
+                            const data = snapshot.data();
+                            setTeams(data.teams || []);
+                        }
+                        setLoading(false);
+                    }, error => {
+                        console.error('Error loading tabla:', error);
+                        setLoading(false);
+                    });
+                
+                return () => unsubscribe();
+            }, [db, userId, appId, grupo]);
+            
+            const sortedTeams = useMemo(() => {
+                return [...teams].sort((a, b) => {
+                    if (b.pts !== a.pts) return b.pts - a.pts;
+                    if (b.dif !== a.dif) return b.dif - a.dif;
+                    return b.gf - a.gf;
+                });
+            }, [teams]);
+            
+            if (loading) {
+                return React.createElement('div', { className: 'flex items-center justify-center py-12' },
+                    React.createElement(Loader, { size: 32, className: 'animate-spin text-indigo-600' })
+                );
+            }
+            
+            return React.createElement('div', { className: 'bg-white rounded-xl shadow-lg overflow-hidden' },
+                React.createElement('div', { className: 'overflow-x-auto' },
+                    React.createElement('table', { className: 'w-full' },
+                        React.createElement('thead', { className: 'bg-gradient-to-r from-indigo-600 to-green-600 text-white sticky top-0' },
+                            React.createElement('tr', null,
+                                React.createElement('th', { className: 'px-4 py-3 text-left text-sm font-semibold' }, '#'),
+                                React.createElement('th', { className: 'px-4 py-3 text-left text-sm font-semibold' }, 'Equipo'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold' }, 'PTS'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold hidden md:table-cell' }, 'PJ'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold hidden md:table-cell' }, 'G'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold hidden md:table-cell' }, 'E'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold hidden md:table-cell' }, 'P'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold hidden lg:table-cell' }, 'GF'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold hidden lg:table-cell' }, 'GC'),
+                                React.createElement('th', { className: 'px-4 py-3 text-center text-sm font-semibold' }, 'DIF')
+                            )
+                        ),
+                        React.createElement('tbody', null,
+                            sortedTeams.map((team, idx) => 
+                                React.createElement('tr', { 
+                                    key: team.nombre, 
+                                    className: 'border-b border-gray-200 hover:bg-gray-50 transition-colors zebra-row'
+                                },
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm font-bold text-gray-700' }, idx + 1),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm font-medium text-gray-800' }, team.nombre),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm text-center font-bold text-indigo-600' }, team.pts),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm text-center text-gray-700 hidden md:table-cell' }, team.pj),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm text-center text-gray-700 hidden md:table-cell' }, team.g),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm text-center text-gray-700 hidden md:table-cell' }, team.e),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm text-center text-gray-700 hidden md:table-cell' }, team.p),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm text-center text-gray-700 hidden lg:table-cell' }, team.gf),
+                                    React.createElement('td', { className: 'px-4 py-3 text-sm text-center text-gray-700 hidden lg:table-cell' }, team.gc),
+                                    React.createElement('td', { 
+                                        className: `px-4 py-3 text-sm text-center font-semibold ${
+                                            team.dif > 0 ? 'text-green-600' : team.dif < 0 ? 'text-red-600' : 'text-gray-700'
+                                        }`
+                                    }, team.dif > 0 ? `+${team.dif}` : team.dif)
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+        };
+
+        // Main App Component
+        const App = () => {
+            const [firebaseReady, setFirebaseReady] = useState(false);
+            const [userId, setUserId] = useState(null);
+            const [appId, setAppId] = useState(null);
+            const [selectedTab, setSelectedTab] = useState('jornada');
+            const [selectedGroup, setSelectedGroup] = useState('A');
+            const [error, setError] = useState(null);
+            
+            useEffect(() => {
+                const init = async () => {
+                    try {
+                        const { db: dbInstance, userId: uid, appId: aid } = await initializeFirebase();
+                        db = dbInstance;
+                        setUserId(uid);
+                        setAppId(aid);
+                        
+                        await initializeTournamentData(dbInstance, uid, aid);
+                        
+                        setFirebaseReady(true);
+                    } catch (err) {
+                        console.error('Initialization error:', err);
+                        setError(err.message);
+                    }
+                };
+                
+                init();
+            }, []);
+            
+            if (error) {
+                return React.createElement('div', { className: 'min-h-screen flex items-center justify-center bg-gray-100' },
+                    React.createElement('div', { className: 'bg-white rounded-xl shadow-lg p-8 max-w-md' },
+                        React.createElement('h2', { className: 'text-xl font-bold text-red-600 mb-4' }, 'Error de Inicialización'),
+                        React.createElement('p', { className: 'text-gray-700' }, error)
+                    )
+                );
+            }
+            
+            if (!firebaseReady) {
+                return React.createElement('div', { className: 'min-h-screen flex flex-col items-center justify-center bg-gray-100' },
+                    React.createElement('div', { className: 'bg-white rounded-xl shadow-2xl p-8' },
+                        React.createElement('div', { className: 'flex items-center gap-4' },
+                            React.createElement(Loader, { size: 48, className: 'animate-spin text-indigo-600' }),
+                            React.createElement('div', null,
+                                React.createElement('h2', { className: 'text-xl font-bold text-gray-800' }, 'Inicializando...'),
+                                React.createElement('p', { className: 'text-gray-600' }, 'Conectando y cargando datos persistentes...')
+                            )
+                        )
+                    )
+                );
+            }
+            
+            return React.createElement('div', { className: 'min-h-screen bg-gray-100 pb-20' },
+                React.createElement('div', { className: 'gradient-header text-white shadow-2xl' },
+                    React.createElement('div', { className: 'container mx-auto px-4 py-8' },
+                        React.createElement('div', { className: 'text-center' },
+                            React.createElement('h1', { className: 'text-4xl md:text-5xl font-bold mb-2' }, 'COPA DORADA'),
+                            React.createElement('p', { className: 'text-lg md:text-xl opacity-90' }, 'FUNDACIÓN CORAZÓN DE AZÚCAR'),
+                            React.createElement('p', { className: 'text-sm mt-2 opacity-75' }, 'Sistema de Gestión de Evento Deportivo')
+                        ),
+                        userId && React.createElement('div', { className: 'mt-4 text-center' },
+                            React.createElement('span', { className: 'bg-white bg-opacity-20 px-3 py-1 rounded-full text-xs' }, `Usuario: ${userId.substring(0, 8)}...`)
+                        )
+                    )
+                ),
+                
+                React.createElement('div', { className: 'container mx-auto px-4 py-8' },
+                    React.createElement('div', { className: 'bg-white rounded-xl shadow-lg p-6 mb-6' },
+                        React.createElement('div', { className: 'flex flex-col md:flex-row gap-4 items-center justify-between' },
+                            React.createElement('div', { className: 'flex gap-2' },
+                                React.createElement('button', {
+                                    onClick: () => setSelectedGroup('A'),
+                                    className: `px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${
+                                        selectedGroup === 'A' 
+                                            ? 'bg-indigo-600 text-white shadow-lg transform scale-105' 
+                                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    }`
+                                }, 'Grupo A'),
+                                React.createElement('button', {
+                                    onClick: () => setSelectedGroup('B'),
+                                    className: `px-6 py-3 rounded-lg font-semibold transition-all duration-300 ${
+                                        selectedGroup === 'B' 
+                                            ? 'bg-green-600 text-white shadow-lg transform scale-105' 
+                                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    }`
+                                }, 'Grupo B')
+                            ),
+                            React.createElement('div', { className: 'flex gap-2' },
+                                React.createElement('button', {
+                                    onClick: () => setSelectedTab('jornada'),
+                                    className: `px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center gap-2 ${
+                                        selectedTab === 'jornada' 
+                                            ? 'bg-indigo-600 text-white' 
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`
+                                },
+                                    React.createElement(Calendar, { size: 18 }),
+                                    React.createElement('span', null, 'Jornada')
+                                ),
+                                React.createElement('button', {
+                                    onClick: () => setSelectedTab('calendario'),
+                                    className: `px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center gap-2 ${
+                                        selectedTab === 'calendario' 
+                                            ? 'bg-indigo-600 text-white' 
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`
+                                },
+                                    React.createElement(Users, { size: 18 }),
+                                    React.createElement('span', null, 'Calendario')
+                                ),
+                                React.createElement('button', {
+                                    onClick: () => setSelectedTab('tabla'),
+                                    className: `px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center gap-2 ${
+                                        selectedTab === 'tabla' 
+                                            ? 'bg-indigo-600 text-white' 
+                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`
+                                },
+                                    React.createElement(Award, { size: 18 }),
+                                    React.createElement('span', null, 'Tabla')
+                                )
+                            )
+                        )
+                    ),
+                    
+                    React.createElement('div', { className: 'bg-white rounded-xl shadow-lg p-6' },
+                        selectedTab === 'jornada' && React.createElement(ProgramacionJornada, { db, userId, appId }),
+                        selectedTab === 'calendario' && React.createElement(CalendarioGrupo, { grupo: selectedGroup, db, userId, appId }),
+                        selectedTab === 'tabla' && React.createElement(TablaPosiciones, { grupo: selectedGroup, db, userId, appId })
+                    )
+                ),
+                
+                React.createElement('div', { className: 'fixed bottom-0 left-0 right-0 bg-indigo-600 text-white py-3 px-4 shadow-lg' },
+                    React.createElement('div', { className: 'container mx-auto text-center text-sm' },
+                        React.createElement('p', null, '✓ Datos persistentes con Firebase Firestore - Las actualizaciones se sincronizan en tiempo real')
+                    )
+                )
+            );
+        };
+
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
