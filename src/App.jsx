@@ -417,6 +417,15 @@ function App() {
 
   async function handleAddMatch() {
     if (!isAdmin) return;
+    // Validation: both teams selected and cannot be the same
+    if (!newMatch.local || !newMatch.visitante) {
+      alert("Selecciona equipo Local y Visitante");
+      return;
+    }
+    if (newMatch.local === newMatch.visitante) {
+      alert("Local y Visitante no pueden ser el mismo equipo");
+      return;
+    }
     const id = `${newMatch.grupo}_${newMatch.local}_${
       newMatch.visitante
     }_${Date.now()}`;
@@ -441,6 +450,14 @@ function App() {
 
   async function handleEditMatchSave() {
     if (!isAdmin || !editingMatch) return;
+    if (!editingMatch.local || !editingMatch.visitante) {
+      alert("Selecciona equipo Local y Visitante");
+      return;
+    }
+    if (editingMatch.local === editingMatch.visitante) {
+      alert("Local y Visitante no pueden ser el mismo equipo");
+      return;
+    }
     await updateDoc(doc(db, "jornada_2", editingMatch.id), editingMatch);
     setMatches(
       matches.map((m) => (m.id === editingMatch.id ? editingMatch : m))
@@ -721,7 +738,11 @@ function App() {
                   >
                     <option value="">Local</option>
                     {(groupsData[activeGroup] || []).map((team) => (
-                      <option key={team} value={team}>
+                      <option
+                        key={team}
+                        value={team}
+                        disabled={team === newMatch.visitante}
+                      >
                         {team}
                       </option>
                     ))}
@@ -735,7 +756,11 @@ function App() {
                   >
                     <option value="">Visitante</option>
                     {(groupsData[activeGroup] || []).map((team) => (
-                      <option key={team} value={team}>
+                      <option
+                        key={team}
+                        value={team}
+                        disabled={team === newMatch.local}
+                      >
                         {team}
                       </option>
                     ))}
@@ -757,8 +782,14 @@ function App() {
                     }
                   />
                   <button
-                    className="bg-green-600 text-white px-3 py-1 rounded"
+                    className="bg-green-600 text-white px-3 py-1 rounded disabled:opacity-50"
                     onClick={handleAddMatch}
+                    disabled={
+                      !isAdmin ||
+                      !newMatch.local ||
+                      !newMatch.visitante ||
+                      newMatch.local === newMatch.visitante
+                    }
                   >
                     Agregar Partido
                   </button>
@@ -786,7 +817,11 @@ function App() {
                           >
                             <option value="">Local</option>
                             {(groupsData[activeGroup] || []).map((team) => (
-                              <option key={team} value={team}>
+                              <option
+                                key={team}
+                                value={team}
+                                disabled={team === editingMatch.visitante}
+                              >
                                 {team}
                               </option>
                             ))}
@@ -803,7 +838,11 @@ function App() {
                           >
                             <option value="">Visitante</option>
                             {(groupsData[activeGroup] || []).map((team) => (
-                              <option key={team} value={team}>
+                              <option
+                                key={team}
+                                value={team}
+                                disabled={team === editingMatch.local}
+                              >
                                 {team}
                               </option>
                             ))}
@@ -831,8 +870,13 @@ function App() {
                             }
                           />
                           <button
-                            className="bg-green-600 text-white px-2 py-1 rounded"
+                            className="bg-green-600 text-white px-2 py-1 rounded disabled:opacity-50"
                             onClick={handleEditMatchSave}
+                            disabled={
+                              !editingMatch?.local ||
+                              !editingMatch?.visitante ||
+                              editingMatch.local === editingMatch.visitante
+                            }
                           >
                             Guardar
                           </button>
@@ -1006,7 +1050,11 @@ function App() {
                                         <option value="">Local</option>
                                         {(groupsData[activeGroup] || []).map(
                                           (team) => (
-                                            <option key={team} value={team}>
+                                            <option
+                                              key={team}
+                                              value={team}
+                                              disabled={team === p.visitante}
+                                            >
                                               {team}
                                             </option>
                                           )
@@ -1031,7 +1079,11 @@ function App() {
                                         <option value="">Visitante</option>
                                         {(groupsData[activeGroup] || []).map(
                                           (team) => (
-                                            <option key={team} value={team}>
+                                            <option
+                                              key={team}
+                                              value={team}
+                                              disabled={team === p.local}
+                                            >
                                               {team}
                                             </option>
                                           )
@@ -1092,9 +1144,22 @@ function App() {
                               {editingJornada && editingJornada.index === ji ? (
                                 <>
                                   <button
-                                    className="bg-green-600 text-white px-2 py-1 rounded mr-2"
+                                    className="bg-green-600 text-white px-2 py-1 rounded mr-2 disabled:opacity-50"
                                     onClick={async () => {
-                                      // Save edit
+                                      // Validate partidos before save
+                                      const invalid =
+                                        editingJornada.partidos.some(
+                                          (p) =>
+                                            !p.local ||
+                                            !p.visitante ||
+                                            p.local === p.visitante
+                                        );
+                                      if (!editingJornada.jornada || invalid) {
+                                        alert(
+                                          "Completa la jornada y asegúrate de que Local y Visitante sean diferentes en todos los partidos"
+                                        );
+                                        return;
+                                      }
                                       const updated = [
                                         ...calendar[activeGroup],
                                       ];
@@ -1116,6 +1181,15 @@ function App() {
                                       );
                                       setEditingJornada(null);
                                     }}
+                                    disabled={
+                                      !editingJornada?.jornada ||
+                                      editingJornada.partidos.some(
+                                        (p) =>
+                                          !p.local ||
+                                          !p.visitante ||
+                                          p.local === p.visitante
+                                      )
+                                    }
                                   >
                                     Guardar
                                   </button>
@@ -1202,7 +1276,11 @@ function App() {
                                     <option value="">Local</option>
                                     {(groupsData[activeGroup] || []).map(
                                       (team) => (
-                                        <option key={team} value={team}>
+                                        <option
+                                          key={team}
+                                          value={team}
+                                          disabled={team === p.visitante}
+                                        >
                                           {team}
                                         </option>
                                       )
@@ -1224,7 +1302,11 @@ function App() {
                                     <option value="">Visitante</option>
                                     {(groupsData[activeGroup] || []).map(
                                       (team) => (
-                                        <option key={team} value={team}>
+                                        <option
+                                          key={team}
+                                          value={team}
+                                          disabled={team === p.local}
+                                        >
                                           {team}
                                         </option>
                                       )
@@ -1267,8 +1349,21 @@ function App() {
                           </td>
                           <td className="border px-2 py-1 text-center">
                             <button
-                              className="bg-green-600 text-white px-2 py-1 rounded"
+                              className="bg-green-600 text-white px-2 py-1 rounded disabled:opacity-50"
                               onClick={async () => {
+                                // Validate all partidos
+                                const invalid = newJornada.partidos.some(
+                                  (p) =>
+                                    !p.local ||
+                                    !p.visitante ||
+                                    p.local === p.visitante
+                                );
+                                if (!newJornada.jornada || invalid) {
+                                  alert(
+                                    "Completa la jornada y asegúrate de que Local y Visitante sean diferentes en todos los partidos"
+                                  );
+                                  return;
+                                }
                                 const updated = [
                                   ...(calendar[activeGroup] || []),
                                   {
@@ -1289,6 +1384,15 @@ function App() {
                                   partidos: [{ local: "", visitante: "" }],
                                 });
                               }}
+                              disabled={
+                                !newJornada.jornada ||
+                                newJornada.partidos.some(
+                                  (p) =>
+                                    !p.local ||
+                                    !p.visitante ||
+                                    p.local === p.visitante
+                                )
+                              }
                             >
                               Agregar Jornada
                             </button>
