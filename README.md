@@ -1,3 +1,35 @@
+# SGED - Sistema de Gestión de Evento Deportivo
+
+A modern web app for managing sports tournaments, built with React, Vite, and Firebase. Features include:
+
+- Team, group, match, and calendar CRUD
+- Standings table
+- Firebase Authentication (admin/viewer roles)
+- Admin-only editing and user management
+- Responsive, mobile-friendly UI
+
+## Features
+
+- Secure login/logout (email/password)
+- Admin role management
+- Jornada and Calendario CRUD
+- Real-time Firestore sync
+- Professional, responsive design
+
+## Getting Started
+
+1. Clone the repo
+2. Copy `.env.example` to `.env` and add your Firebase config
+3. Run `npm install`
+4. Run `npm run dev` for local development
+5. Deploy with Firebase Hosting
+
+## License
+
+See [LICENSE](LICENSE).
+
+---
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
