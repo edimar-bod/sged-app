@@ -28,21 +28,50 @@ A modern web app for managing sports tournaments, built with React, Vite, and Fi
 
 See [LICENSE](LICENSE).
 
----
+## Deploy checklist (Firebase Hosting)
 
-# React + Vite
+Before deploying to production, verify these steps to avoid auth/invalid-api-key and similar issues:
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+1. Environment variables (.env)
 
-Currently, two official plugins are available:
+- Ensure `.env` exists (not committed) with the following keys:
+  - `VITE_FIREBASE_API_KEY`
+  - `VITE_FIREBASE_AUTH_DOMAIN`
+  - `VITE_FIREBASE_PROJECT_ID`
+  - `VITE_FIREBASE_STORAGE_BUCKET` (must end with `.appspot.com`)
+  - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+  - `VITE_FIREBASE_APP_ID`
+  - `VITE_FIREBASE_MEASUREMENT_ID` (optional)
+- The build will run a precheck and fail if something is missing or malformed.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+2. Authorized domains (Firebase Auth)
 
-## React Compiler
+- Firebase Console → Authentication → Settings → Authorized domains:
+  - Add `your-project.web.app`
+  - Add `your-project.firebaseapp.com`
+  - Add any custom domain you use
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+3. Build and Deploy
 
-## Expanding the ESLint configuration
+```sh
+npm run build
+firebase deploy --only hosting
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Or use the combined script:
+
+```sh
+npm run deploy
+```
+
+4. Troubleshooting
+
+- If you see `auth/invalid-api-key` in production:
+  - Rebuild after updating `.env` (Vite injects env at build time).
+  - Confirm the API key starts with `AIza` and belongs to the same Google Cloud project as this Firebase app.
+  - If API key restrictions are enabled (HTTP referrers), include both `*.web.app` and `*.firebaseapp.com` (and any custom domain).
+
+5. Security
+
+- Never commit `.env`. It is ignored via `.gitignore`.
+- Rotate exposed API keys immediately and redeploy.
