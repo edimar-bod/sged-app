@@ -551,18 +551,18 @@ function App() {
           ))}
         </div>
         {/* Add/Delete Group */}
-        <div className="flex gap-2 items-center mt-2">
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center mt-2">
           <input
             type="text"
             placeholder="Nuevo grupo (ej: C)"
-            className="border rounded px-2 py-1"
+            className="border rounded px-2 py-1 w-full sm:w-auto"
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value.toUpperCase())}
             maxLength={2}
             disabled={!isAdmin}
           />
           <button
-            className="bg-green-600 text-white px-3 py-1 rounded disabled:opacity-50"
+            className="bg-green-600 text-white px-3 py-1 rounded disabled:opacity-50 w-full sm:w-auto"
             onClick={handleAddGroup}
             disabled={!isAdmin}
           >
@@ -570,7 +570,7 @@ function App() {
           </button>
           {activeGroup && (
             <button
-              className="bg-red-600 text-white px-3 py-1 rounded disabled:opacity-50"
+              className="bg-red-600 text-white px-3 py-1 rounded disabled:opacity-50 w-full sm:w-auto"
               onClick={() => handleDeleteGroup(activeGroup)}
               disabled={!isAdmin || Object.keys(groupsData).length <= 1}
             >
@@ -679,17 +679,17 @@ function App() {
                 </ul>
               )}
               {/* Add Team */}
-              <div className="flex gap-2 mt-4">
+              <div className="flex flex-col sm:flex-row gap-2 mt-4">
                 <input
                   type="text"
                   placeholder="Nuevo equipo"
-                  className="border rounded px-2 py-1"
+                  className="border rounded px-2 py-1 w-full sm:w-auto"
                   value={newTeamName}
                   onChange={(e) => setNewTeamName(e.target.value)}
                   disabled={!isAdmin}
                 />
                 <button
-                  className="bg-blue-600 text-white px-3 py-1 rounded disabled:opacity-50"
+                  className="bg-blue-600 text-white px-3 py-1 rounded disabled:opacity-50 w-full sm:w-auto"
                   onClick={() => handleAddTeam(activeGroup)}
                   disabled={!isAdmin}
                 >
@@ -711,9 +711,9 @@ function App() {
               </div>
               <h3 className="text-center font-bold mb-2">Partidos Jornada 2</h3>
               {isAdmin && (
-                <div className="mb-4 flex flex-wrap gap-2 items-end">
+                <div className="mb-4 flex flex-wrap sm:flex-nowrap gap-2 items-end">
                   <select
-                    className="border rounded px-2 py-1"
+                    className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={newMatch.local}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, local: e.target.value })
@@ -727,7 +727,7 @@ function App() {
                     ))}
                   </select>
                   <select
-                    className="border rounded px-2 py-1"
+                    className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={newMatch.visitante}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, visitante: e.target.value })
@@ -742,7 +742,7 @@ function App() {
                   </select>
                   <input
                     type="date"
-                    className="border rounded px-2 py-1"
+                    className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={newMatch.fecha}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, fecha: e.target.value })
@@ -750,7 +750,7 @@ function App() {
                   />
                   <input
                     type="time"
-                    className="border rounded px-2 py-1"
+                    className="border rounded px-2 py-1 w-full sm:w-auto"
                     value={newMatch.hora}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, hora: e.target.value })
@@ -984,14 +984,13 @@ function App() {
                               ).map((p, pi) => (
                                 <li
                                   key={pi}
-                                  className="flex gap-2 items-center"
+                                  className="flex flex-col sm:flex-row gap-2 items-start sm:items-center"
                                 >
                                   {editingJornada &&
                                   editingJornada.index === ji ? (
                                     <>
-                                      <input
-                                        type="text"
-                                        className="border rounded px-2 py-1"
+                                      <select
+                                        className="border rounded px-2 py-1 w-full sm:w-auto"
                                         value={p.local}
                                         onChange={(e) => {
                                           const partidos = [
@@ -1003,11 +1002,19 @@ function App() {
                                             partidos,
                                           });
                                         }}
-                                      />
+                                      >
+                                        <option value="">Local</option>
+                                        {(groupsData[activeGroup] || []).map(
+                                          (team) => (
+                                            <option key={team} value={team}>
+                                              {team}
+                                            </option>
+                                          )
+                                        )}
+                                      </select>
                                       <span className="text-gray-400">vs</span>
-                                      <input
-                                        type="text"
-                                        className="border rounded px-2 py-1"
+                                      <select
+                                        className="border rounded px-2 py-1 w-full sm:w-auto"
                                         value={p.visitante}
                                         onChange={(e) => {
                                           const partidos = [
@@ -1020,7 +1027,16 @@ function App() {
                                             partidos,
                                           });
                                         }}
-                                      />
+                                      >
+                                        <option value="">Visitante</option>
+                                        {(groupsData[activeGroup] || []).map(
+                                          (team) => (
+                                            <option key={team} value={team}>
+                                              {team}
+                                            </option>
+                                          )
+                                        )}
+                                      </select>
                                       <button
                                         className="bg-red-600 text-white px-2 py-1 rounded ml-2"
                                         onClick={() => {
@@ -1169,12 +1185,10 @@ function App() {
                               {newJornada.partidos.map((p, pi) => (
                                 <li
                                   key={pi}
-                                  className="flex gap-2 items-center"
+                                  className="flex flex-col sm:flex-row gap-2 items-start sm:items-center"
                                 >
-                                  <input
-                                    type="text"
-                                    className="border rounded px-2 py-1"
-                                    placeholder="Local"
+                                  <select
+                                    className="border rounded px-2 py-1 w-full sm:w-auto"
                                     value={p.local}
                                     onChange={(e) => {
                                       const partidos = [...newJornada.partidos];
@@ -1184,12 +1198,19 @@ function App() {
                                         partidos,
                                       });
                                     }}
-                                  />
+                                  >
+                                    <option value="">Local</option>
+                                    {(groupsData[activeGroup] || []).map(
+                                      (team) => (
+                                        <option key={team} value={team}>
+                                          {team}
+                                        </option>
+                                      )
+                                    )}
+                                  </select>
                                   <span className="text-gray-400">vs</span>
-                                  <input
-                                    type="text"
-                                    className="border rounded px-2 py-1"
-                                    placeholder="Visitante"
+                                  <select
+                                    className="border rounded px-2 py-1 w-full sm:w-auto"
                                     value={p.visitante}
                                     onChange={(e) => {
                                       const partidos = [...newJornada.partidos];
@@ -1199,7 +1220,16 @@ function App() {
                                         partidos,
                                       });
                                     }}
-                                  />
+                                  >
+                                    <option value="">Visitante</option>
+                                    {(groupsData[activeGroup] || []).map(
+                                      (team) => (
+                                        <option key={team} value={team}>
+                                          {team}
+                                        </option>
+                                      )
+                                    )}
+                                  </select>
                                   <button
                                     className="bg-red-600 text-white px-2 py-1 rounded ml-2"
                                     onClick={() => {
@@ -1341,41 +1371,49 @@ function App() {
             ) : userListError ? (
               <div className="text-red-500">{userListError}</div>
             ) : (
-              <table className="min-w-full border text-sm">
-                <thead>
-                  <tr className="bg-slate-100">
-                    <th className="px-2 py-1 border">Email</th>
-                    <th className="px-2 py-1 border">Rol</th>
-                    <th className="px-2 py-1 border">Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {userList.map((u) => (
-                    <tr key={u.id}>
-                      <td className="border px-2 py-1">{u.email}</td>
-                      <td className="border px-2 py-1 text-center">{u.role}</td>
-                      <td className="border px-2 py-1 text-center">
-                        {u.role === "admin" ? (
-                          <button
-                            className="bg-yellow-500 text-white px-2 py-1 rounded mr-2"
-                            onClick={() => handleChangeUserRole(u.id, "viewer")}
-                            disabled={u.id === user?.uid}
-                          >
-                            Quitar admin
-                          </button>
-                        ) : (
-                          <button
-                            className="bg-green-600 text-white px-2 py-1 rounded"
-                            onClick={() => handleChangeUserRole(u.id, "admin")}
-                          >
-                            Hacer admin
-                          </button>
-                        )}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="min-w-full border text-sm">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      <th className="px-2 py-1 border">Email</th>
+                      <th className="px-2 py-1 border">Rol</th>
+                      <th className="px-2 py-1 border">Acción</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {userList.map((u) => (
+                      <tr key={u.id}>
+                        <td className="border px-2 py-1">{u.email}</td>
+                        <td className="border px-2 py-1 text-center">
+                          {u.role}
+                        </td>
+                        <td className="border px-2 py-1 text-center">
+                          {u.role === "admin" ? (
+                            <button
+                              className="bg-yellow-500 text-white px-2 py-1 rounded mr-2"
+                              onClick={() =>
+                                handleChangeUserRole(u.id, "viewer")
+                              }
+                              disabled={u.id === user?.uid}
+                            >
+                              Quitar admin
+                            </button>
+                          ) : (
+                            <button
+                              className="bg-green-600 text-white px-2 py-1 rounded"
+                              onClick={() =>
+                                handleChangeUserRole(u.id, "admin")
+                              }
+                            >
+                              Hacer admin
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
         )}
