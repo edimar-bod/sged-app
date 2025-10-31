@@ -495,7 +495,7 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* Auth UI */}
-      <div className="absolute top-4 right-4 z-50">
+      <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2">
         <AuthForm
           onLogin={handleLogin}
           onLogout={handleLogout}
@@ -503,6 +503,25 @@ function App() {
           loading={authLoading}
           error={authError}
         />
+        {user && (
+          <div className="flex items-center gap-2 bg-white/90 rounded px-3 py-1 shadow text-xs text-slate-700 border transition-all duration-200">
+            <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm mr-2">
+              {user.email?.[0]?.toUpperCase()}
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="font-semibold text-xs">{user.email}</span>
+              <span
+                className={`uppercase tracking-wide text-[10px] font-bold px-2 py-0.5 rounded ${
+                  userRole === "admin"
+                    ? "bg-indigo-100 text-indigo-700 border border-indigo-300"
+                    : "bg-gray-100 text-gray-500 border border-gray-300"
+                }`}
+              >
+                {userRole === "admin" ? "ADMINISTRADOR" : "VISOR"}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Header */}
@@ -571,6 +590,12 @@ function App() {
             <TabButton key={tab} label={tab} />
           ))}
         </div>
+        {!isAdmin && user && (
+          <div className="my-2 text-xs text-red-500 text-center animate-pulse">
+            Solo los administradores pueden editar datos. Si necesitas permisos,
+            contacta a un administrador.
+          </div>
+        )}
 
         {/* Contenido Principal */}
         <section className="bg-white rounded-xl border p-6">
