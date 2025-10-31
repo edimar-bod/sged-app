@@ -11,6 +11,9 @@ import {
   setDoc,
   doc,
   updateDoc,
+  getDoc,
+  updateDoc as updateUserDoc,
+  onSnapshot,
 } from "firebase/firestore";
 import {
   JORNADA_2_PARTIDOS,
@@ -19,18 +22,21 @@ import {
   EQUIPOS_A,
   EQUIPOS_B,
 } from "./tournamentData";
+
+const CALENDAR_COLLECTION = "calendario";
 import AuthForm from "./AuthForm";
 
 // Firestore collection for teams and groups
 const TEAMS_COLLECTION = "teams";
-const ADMIN_EMAILS = ["edimar.bod@gmail.com", "edimar.marcano@gmail.com"];
+const USERS_COLLECTION = "users";
 
 function App() {
   // Auth state
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
-  const isAdmin = user && ADMIN_EMAILS.includes(user.email);
+  const [userRole, setUserRole] = useState(null); // 'admin' | 'viewer' | null
+  const isAdmin = userRole === "admin";
 
   const [activeGroup, setActiveGroup] = useState("A");
   const [activeTab, setActiveTab] = useState("Jornada");
@@ -47,12 +53,76 @@ function App() {
     oldName: "",
     newName: "",
   });
+  // Calendario state
+  const [calendar, setCalendar] = useState({ A: [], B: [] });
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [calendarError, setCalendarError] = useState("");
+  const [editingJornada, setEditingJornada] = useState(null); // { group, jornada, partidos }
+  const [newJornada, setNewJornada] = useState({
+    jornada: "",
+    partidos: [{ local: "", visitante: "" }],
+  });
+  // Admin user management
+  const [userList, setUserList] = useState([]);
+  const [userListLoading, setUserListLoading] = useState(false);
+  const [userListError, setUserListError] = useState("");
+  // Admin: fetch all users for role management
+  useEffect(() => {
+    if (!isAdmin) return;
+    setUserListLoading(true);
+    setUserListError("");
+    const unsub = onSnapshot(
+      collection(db, USERS_COLLECTION),
+      (snap) => {
+        try {
+          const users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setUserList(users);
+          setUserListLoading(false);
+        } catch (e) {
+          setUserListError("Error cargando usuarios: " + e.message);
+          setUserListLoading(false);
+        }
+      },
+      (err) => {
+        setUserListError("Error cargando usuarios: " + err.message);
+        setUserListLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [isAdmin]);
+
+  // Admin: change user role
+  const handleChangeUserRole = async (uid, newRole) => {
+    try {
+      await updateUserDoc(doc(db, USERS_COLLECTION, uid), { role: newRole });
+    } catch (e) {
+      alert("Error cambiando rol: " + e.message);
+    }
+  };
 
   // Auth handlers
+  // On auth state change, fetch user role from Firestore
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       setAuthLoading(false);
+      if (firebaseUser) {
+        // Fetch user role from Firestore
+        const userDocRef = doc(db, USERS_COLLECTION, firebaseUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          setUserRole(userDocSnap.data().role || "viewer");
+        } else {
+          // If user doc doesn't exist, create as viewer
+          await setDoc(userDocRef, {
+            email: firebaseUser.email,
+            role: "viewer",
+          });
+          setUserRole("viewer");
+        }
+      } else {
+        setUserRole(null);
+      }
     });
     return () => unsub();
   }, []);
@@ -62,6 +132,7 @@ function App() {
     setAuthError("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged will handle user/role
     } catch (e) {
       setAuthError("Error de autenticación: " + e.message);
     } finally {
@@ -74,6 +145,7 @@ function App() {
     setAuthError("");
     try {
       await signOut(auth);
+      setUserRole(null);
     } catch (e) {
       setAuthError("Error al cerrar sesión: " + e.message);
     } finally {
@@ -212,8 +284,35 @@ function App() {
         setTeamsLoading(false);
       }
     }
+    async function loadCalendar() {
+      setCalendarLoading(true);
+      setCalendarError("");
+      try {
+        const colRef = collection(db, CALENDAR_COLLECTION);
+        const snap = await getDocs(colRef);
+        let loadedCalendar = { A: [], B: [] };
+        if (snap.empty) {
+          loadedCalendar = { A: CALENDARIO_A, B: CALENDARIO_B };
+          await Promise.all(
+            Object.entries(loadedCalendar).map(([group, jornadas]) =>
+              setDoc(doc(db, CALENDAR_COLLECTION, group), { jornadas })
+            )
+          );
+        } else {
+          snap.docs.forEach((d) => {
+            loadedCalendar[d.id] = d.data().jornadas;
+          });
+        }
+        setCalendar(loadedCalendar);
+        setCalendarLoading(false);
+      } catch (e) {
+        setCalendarError("Error cargando calendario: " + e.message);
+        setCalendarLoading(false);
+      }
+    }
     loadMatches();
     loadTeams();
+    loadCalendar();
   }, [computeStandings]);
 
   // Teams CRUD handlers
@@ -296,6 +395,56 @@ function App() {
     );
     setMatches(updated);
     computeStandings(updated);
+  }
+
+  // Admin: Add/Edit/Delete Jornada (matches)
+  const [editingMatch, setEditingMatch] = useState(null); // match object or null
+  const [newMatch, setNewMatch] = useState({
+    grupo: activeGroup,
+    local: "",
+    visitante: "",
+    dia: "",
+    fecha: "",
+    hora: "",
+  });
+
+  async function handleAddMatch() {
+    if (!isAdmin) return;
+    const id = `${newMatch.grupo}_${newMatch.local}_${
+      newMatch.visitante
+    }_${Date.now()}`;
+    const matchObj = {
+      ...newMatch,
+      id,
+      scoreLocal: null,
+      scoreVisitante: null,
+      played: false,
+    };
+    await setDoc(doc(db, "jornada_2", id), matchObj);
+    setMatches([...matches, matchObj]);
+    setNewMatch({
+      grupo: activeGroup,
+      local: "",
+      visitante: "",
+      dia: "",
+      fecha: "",
+      hora: "",
+    });
+  }
+
+  async function handleEditMatchSave() {
+    if (!isAdmin || !editingMatch) return;
+    await updateDoc(doc(db, "jornada_2", editingMatch.id), editingMatch);
+    setMatches(
+      matches.map((m) => (m.id === editingMatch.id ? editingMatch : m))
+    );
+    setEditingMatch(null);
+  }
+
+  async function handleDeleteMatch(matchId) {
+    if (!isAdmin) return;
+    await setDoc(doc(db, "jornada_2", matchId), {}, { merge: false });
+    setMatches(matches.filter((m) => m.id !== matchId));
   }
 
   // UI rendering
@@ -384,21 +533,28 @@ function App() {
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value.toUpperCase())}
             maxLength={2}
+            disabled={!isAdmin}
           />
           <button
-            className="bg-green-600 text-white px-3 py-1 rounded"
+            className="bg-green-600 text-white px-3 py-1 rounded disabled:opacity-50"
             onClick={handleAddGroup}
+            disabled={!isAdmin}
           >
             Agregar Grupo
           </button>
           {activeGroup && (
             <button
-              className="bg-red-600 text-white px-3 py-1 rounded"
+              className="bg-red-600 text-white px-3 py-1 rounded disabled:opacity-50"
               onClick={() => handleDeleteGroup(activeGroup)}
-              disabled={Object.keys(groupsData).length <= 1}
+              disabled={!isAdmin || Object.keys(groupsData).length <= 1}
             >
               Eliminar Grupo
             </button>
+          )}
+          {!isAdmin && (
+            <span className="text-xs text-red-500 ml-2">
+              Solo administradores pueden editar grupos
+            </span>
           )}
         </div>
 
@@ -471,14 +627,16 @@ function App() {
                             {team}
                           </span>
                           <button
-                            className="bg-yellow-500 text-white px-2 py-1 rounded"
+                            className="bg-yellow-500 text-white px-2 py-1 rounded disabled:opacity-50"
                             onClick={() => startEditTeam(activeGroup, team)}
+                            disabled={!isAdmin}
                           >
                             Editar
                           </button>
                           <button
-                            className="bg-red-600 text-white px-2 py-1 rounded"
+                            className="bg-red-600 text-white px-2 py-1 rounded disabled:opacity-50"
                             onClick={() => handleDeleteTeam(activeGroup, team)}
+                            disabled={!isAdmin}
                           >
                             Eliminar
                           </button>
@@ -496,13 +654,20 @@ function App() {
                   className="border rounded px-2 py-1"
                   value={newTeamName}
                   onChange={(e) => setNewTeamName(e.target.value)}
+                  disabled={!isAdmin}
                 />
                 <button
-                  className="bg-blue-600 text-white px-3 py-1 rounded"
+                  className="bg-blue-600 text-white px-3 py-1 rounded disabled:opacity-50"
                   onClick={() => handleAddTeam(activeGroup)}
+                  disabled={!isAdmin}
                 >
                   Agregar Equipo
                 </button>
+                {!isAdmin && (
+                  <span className="text-xs text-red-500 ml-2">
+                    Solo administradores pueden editar equipos
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -513,6 +678,61 @@ function App() {
                 <span className="text-3xl">🗓️</span>
               </div>
               <h3 className="text-center font-bold mb-2">Partidos Jornada 2</h3>
+              {isAdmin && (
+                <div className="mb-4 flex flex-wrap gap-2 items-end">
+                  <input
+                    type="text"
+                    className="border rounded px-2 py-1"
+                    placeholder="Local"
+                    value={newMatch.local}
+                    onChange={(e) =>
+                      setNewMatch({ ...newMatch, local: e.target.value })
+                    }
+                  />
+                  <input
+                    type="text"
+                    className="border rounded px-2 py-1"
+                    placeholder="Visitante"
+                    value={newMatch.visitante}
+                    onChange={(e) =>
+                      setNewMatch({ ...newMatch, visitante: e.target.value })
+                    }
+                  />
+                  <input
+                    type="text"
+                    className="border rounded px-2 py-1"
+                    placeholder="Día"
+                    value={newMatch.dia}
+                    onChange={(e) =>
+                      setNewMatch({ ...newMatch, dia: e.target.value })
+                    }
+                  />
+                  <input
+                    type="text"
+                    className="border rounded px-2 py-1"
+                    placeholder="Fecha"
+                    value={newMatch.fecha}
+                    onChange={(e) =>
+                      setNewMatch({ ...newMatch, fecha: e.target.value })
+                    }
+                  />
+                  <input
+                    type="text"
+                    className="border rounded px-2 py-1"
+                    placeholder="Hora"
+                    value={newMatch.hora}
+                    onChange={(e) =>
+                      setNewMatch({ ...newMatch, hora: e.target.value })
+                    }
+                  />
+                  <button
+                    className="bg-green-600 text-white px-3 py-1 rounded"
+                    onClick={handleAddMatch}
+                  >
+                    Agregar Partido
+                  </button>
+                </div>
+              )}
               <div className="space-y-3">
                 {matches
                   .filter((m) => m.grupo === activeGroup)
@@ -521,54 +741,150 @@ function App() {
                       key={match.id}
                       className="bg-slate-50 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between border"
                     >
-                      <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
-                        <span className="font-semibold text-gray-800 w-32 text-right">
-                          {match.local}
-                        </span>
-                        <input
-                          type="number"
-                          min="0"
-                          className="w-12 text-center border rounded mx-1"
-                          value={match.scoreLocal ?? ""}
-                          onChange={(e) =>
-                            handleScoreChange(
-                              match.id,
-                              "scoreLocal",
-                              e.target.value
-                            )
-                          }
-                          disabled={match.played}
-                        />
-                        <span className="mx-2 text-gray-500 font-bold">vs</span>
-                        <input
-                          type="number"
-                          min="0"
-                          className="w-12 text-center border rounded mx-1"
-                          value={match.scoreVisitante ?? ""}
-                          onChange={(e) =>
-                            handleScoreChange(
-                              match.id,
-                              "scoreVisitante",
-                              e.target.value
-                            )
-                          }
-                          disabled={match.played}
-                        />
-                        <span className="font-semibold text-gray-800 w-32 text-left">
-                          {match.visitante}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-2 md:mt-0">
-                        <span className="text-xs text-gray-400">
-                          {match.dia} {match.fecha} {match.hora}
-                        </span>
-                        {!match.played && (
+                      {editingMatch && editingMatch.id === match.id ? (
+                        <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
+                          <input
+                            type="text"
+                            className="border rounded px-2 py-1"
+                            value={editingMatch.local}
+                            onChange={(e) =>
+                              setEditingMatch({
+                                ...editingMatch,
+                                local: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            type="text"
+                            className="border rounded px-2 py-1"
+                            value={editingMatch.visitante}
+                            onChange={(e) =>
+                              setEditingMatch({
+                                ...editingMatch,
+                                visitante: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            type="text"
+                            className="border rounded px-2 py-1"
+                            value={editingMatch.dia}
+                            onChange={(e) =>
+                              setEditingMatch({
+                                ...editingMatch,
+                                dia: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            type="text"
+                            className="border rounded px-2 py-1"
+                            value={editingMatch.fecha}
+                            onChange={(e) =>
+                              setEditingMatch({
+                                ...editingMatch,
+                                fecha: e.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            type="text"
+                            className="border rounded px-2 py-1"
+                            value={editingMatch.hora}
+                            onChange={(e) =>
+                              setEditingMatch({
+                                ...editingMatch,
+                                hora: e.target.value,
+                              })
+                            }
+                          />
                           <button
-                            className="ml-4 px-3 py-1 bg-indigo-600 text-white rounded shadow hover:bg-indigo-700 transition"
-                            onClick={() => handleSaveScore(match)}
+                            className="bg-green-600 text-white px-2 py-1 rounded"
+                            onClick={handleEditMatchSave}
                           >
                             Guardar
                           </button>
+                          <button
+                            className="bg-gray-400 text-white px-2 py-1 rounded"
+                            onClick={() => setEditingMatch(null)}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
+                          <span className="font-semibold text-gray-800 w-32 text-right">
+                            {match.local}
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            className="w-12 text-center border rounded mx-1"
+                            value={match.scoreLocal ?? ""}
+                            onChange={(e) =>
+                              handleScoreChange(
+                                match.id,
+                                "scoreLocal",
+                                e.target.value
+                              )
+                            }
+                            disabled={match.played || !isAdmin}
+                          />
+                          <span className="mx-2 text-gray-500 font-bold">
+                            vs
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            className="w-12 text-center border rounded mx-1"
+                            value={match.scoreVisitante ?? ""}
+                            onChange={(e) =>
+                              handleScoreChange(
+                                match.id,
+                                "scoreVisitante",
+                                e.target.value
+                              )
+                            }
+                            disabled={match.played || !isAdmin}
+                          />
+                          <span className="font-semibold text-gray-800 w-32 text-left">
+                            {match.visitante}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {match.dia} {match.fecha} {match.hora}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 mt-2 md:mt-0">
+                        {!match.played && (
+                          <button
+                            className="ml-4 px-3 py-1 bg-indigo-600 text-white rounded shadow hover:bg-indigo-700 transition disabled:opacity-50"
+                            onClick={() => handleSaveScore(match)}
+                            disabled={!isAdmin}
+                          >
+                            Guardar
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <>
+                            <button
+                              className="bg-yellow-500 text-white px-2 py-1 rounded"
+                              onClick={() => setEditingMatch(match)}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              className="bg-red-600 text-white px-2 py-1 rounded"
+                              onClick={() => handleDeleteMatch(match.id)}
+                            >
+                              Eliminar
+                            </button>
+                          </>
+                        )}
+                        {!isAdmin && (
+                          <span className="ml-4 text-xs text-red-500">
+                            Solo administradores pueden editar resultados
+                          </span>
                         )}
                         {match.played && (
                           <span className="ml-4 text-green-600 font-bold">
@@ -590,45 +906,337 @@ function App() {
               <h3 className="text-center font-bold mb-2">
                 Calendario Grupo {activeGroup}
               </h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full border text-sm">
-                  <thead>
-                    <tr className="bg-green-50">
-                      <th className="px-2 py-1 border">Jornada</th>
-                      <th className="px-2 py-1 border">Partidos</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(activeGroup === "A" ? CALENDARIO_A : CALENDARIO_B).map(
-                      (j) => (
+              {calendarLoading ? (
+                <div className="text-center text-gray-500">
+                  Cargando calendario...
+                </div>
+              ) : calendarError ? (
+                <div className="text-center text-red-500">{calendarError}</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border text-sm">
+                    <thead>
+                      <tr className="bg-green-50">
+                        <th className="px-2 py-1 border">Jornada</th>
+                        <th className="px-2 py-1 border">Partidos</th>
+                        {isAdmin && (
+                          <th className="px-2 py-1 border">Acción</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {calendar[activeGroup]?.map((j, ji) => (
                         <tr key={j.jornada}>
                           <td className="border px-2 py-1 font-bold text-center">
-                            {j.jornada}
+                            {editingJornada && editingJornada.index === ji ? (
+                              <input
+                                type="text"
+                                className="border rounded px-2 py-1"
+                                value={editingJornada.jornada}
+                                onChange={(e) =>
+                                  setEditingJornada({
+                                    ...editingJornada,
+                                    jornada: e.target.value,
+                                  })
+                                }
+                              />
+                            ) : (
+                              j.jornada
+                            )}
                           </td>
                           <td className="border px-2 py-1">
                             <ul>
-                              {j.partidos.map((p, idx) => (
+                              {(editingJornada && editingJornada.index === ji
+                                ? editingJornada.partidos
+                                : j.partidos
+                              ).map((p, pi) => (
                                 <li
-                                  key={idx}
+                                  key={pi}
                                   className="flex gap-2 items-center"
                                 >
-                                  <span className="font-semibold text-gray-700">
-                                    {p.local}
-                                  </span>
-                                  <span className="text-gray-400">vs</span>
-                                  <span className="font-semibold text-gray-700">
-                                    {p.visitante}
-                                  </span>
+                                  {editingJornada &&
+                                  editingJornada.index === ji ? (
+                                    <>
+                                      <input
+                                        type="text"
+                                        className="border rounded px-2 py-1"
+                                        value={p.local}
+                                        onChange={(e) => {
+                                          const partidos = [
+                                            ...editingJornada.partidos,
+                                          ];
+                                          partidos[pi].local = e.target.value;
+                                          setEditingJornada({
+                                            ...editingJornada,
+                                            partidos,
+                                          });
+                                        }}
+                                      />
+                                      <span className="text-gray-400">vs</span>
+                                      <input
+                                        type="text"
+                                        className="border rounded px-2 py-1"
+                                        value={p.visitante}
+                                        onChange={(e) => {
+                                          const partidos = [
+                                            ...editingJornada.partidos,
+                                          ];
+                                          partidos[pi].visitante =
+                                            e.target.value;
+                                          setEditingJornada({
+                                            ...editingJornada,
+                                            partidos,
+                                          });
+                                        }}
+                                      />
+                                      <button
+                                        className="bg-red-600 text-white px-2 py-1 rounded ml-2"
+                                        onClick={() => {
+                                          const partidos =
+                                            editingJornada.partidos.filter(
+                                              (_, idx) => idx !== pi
+                                            );
+                                          setEditingJornada({
+                                            ...editingJornada,
+                                            partidos,
+                                          });
+                                        }}
+                                      >
+                                        Eliminar
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="font-semibold text-gray-700">
+                                        {p.local}
+                                      </span>
+                                      <span className="text-gray-400">vs</span>
+                                      <span className="font-semibold text-gray-700">
+                                        {p.visitante}
+                                      </span>
+                                    </>
+                                  )}
                                 </li>
                               ))}
+                              {editingJornada &&
+                                editingJornada.index === ji && (
+                                  <li className="mt-2">
+                                    <button
+                                      className="bg-blue-600 text-white px-2 py-1 rounded"
+                                      onClick={() =>
+                                        setEditingJornada({
+                                          ...editingJornada,
+                                          partidos: [
+                                            ...editingJornada.partidos,
+                                            { local: "", visitante: "" },
+                                          ],
+                                        })
+                                      }
+                                    >
+                                      Agregar Partido
+                                    </button>
+                                  </li>
+                                )}
                             </ul>
                           </td>
+                          {isAdmin && (
+                            <td className="border px-2 py-1 text-center">
+                              {editingJornada && editingJornada.index === ji ? (
+                                <>
+                                  <button
+                                    className="bg-green-600 text-white px-2 py-1 rounded mr-2"
+                                    onClick={async () => {
+                                      // Save edit
+                                      const updated = [
+                                        ...calendar[activeGroup],
+                                      ];
+                                      updated[ji] = {
+                                        jornada: editingJornada.jornada,
+                                        partidos: editingJornada.partidos,
+                                      };
+                                      setCalendar({
+                                        ...calendar,
+                                        [activeGroup]: updated,
+                                      });
+                                      await setDoc(
+                                        doc(
+                                          db,
+                                          CALENDAR_COLLECTION,
+                                          activeGroup
+                                        ),
+                                        { jornadas: updated }
+                                      );
+                                      setEditingJornada(null);
+                                    }}
+                                  >
+                                    Guardar
+                                  </button>
+                                  <button
+                                    className="bg-gray-400 text-white px-2 py-1 rounded"
+                                    onClick={() => setEditingJornada(null)}
+                                  >
+                                    Cancelar
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    className="bg-yellow-500 text-white px-2 py-1 rounded mr-2"
+                                    onClick={() =>
+                                      setEditingJornada({ ...j, index: ji })
+                                    }
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    className="bg-red-600 text-white px-2 py-1 rounded"
+                                    onClick={async () => {
+                                      const updated = calendar[
+                                        activeGroup
+                                      ].filter((_, idx) => idx !== ji);
+                                      setCalendar({
+                                        ...calendar,
+                                        [activeGroup]: updated,
+                                      });
+                                      await setDoc(
+                                        doc(
+                                          db,
+                                          CALENDAR_COLLECTION,
+                                          activeGroup
+                                        ),
+                                        { jornadas: updated }
+                                      );
+                                    }}
+                                  >
+                                    Eliminar
+                                  </button>
+                                </>
+                              )}
+                            </td>
+                          )}
                         </tr>
-                      )
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      ))}
+                      {isAdmin && (
+                        <tr>
+                          <td className="border px-2 py-1">
+                            <input
+                              type="text"
+                              className="border rounded px-2 py-1"
+                              placeholder="Nueva jornada"
+                              value={newJornada.jornada}
+                              onChange={(e) =>
+                                setNewJornada({
+                                  ...newJornada,
+                                  jornada: e.target.value,
+                                })
+                              }
+                            />
+                          </td>
+                          <td className="border px-2 py-1">
+                            <ul>
+                              {newJornada.partidos.map((p, pi) => (
+                                <li
+                                  key={pi}
+                                  className="flex gap-2 items-center"
+                                >
+                                  <input
+                                    type="text"
+                                    className="border rounded px-2 py-1"
+                                    placeholder="Local"
+                                    value={p.local}
+                                    onChange={(e) => {
+                                      const partidos = [...newJornada.partidos];
+                                      partidos[pi].local = e.target.value;
+                                      setNewJornada({
+                                        ...newJornada,
+                                        partidos,
+                                      });
+                                    }}
+                                  />
+                                  <span className="text-gray-400">vs</span>
+                                  <input
+                                    type="text"
+                                    className="border rounded px-2 py-1"
+                                    placeholder="Visitante"
+                                    value={p.visitante}
+                                    onChange={(e) => {
+                                      const partidos = [...newJornada.partidos];
+                                      partidos[pi].visitante = e.target.value;
+                                      setNewJornada({
+                                        ...newJornada,
+                                        partidos,
+                                      });
+                                    }}
+                                  />
+                                  <button
+                                    className="bg-red-600 text-white px-2 py-1 rounded ml-2"
+                                    onClick={() => {
+                                      const partidos =
+                                        newJornada.partidos.filter(
+                                          (_, idx) => idx !== pi
+                                        );
+                                      setNewJornada({
+                                        ...newJornada,
+                                        partidos,
+                                      });
+                                    }}
+                                  >
+                                    Eliminar
+                                  </button>
+                                </li>
+                              ))}
+                              <li className="mt-2">
+                                <button
+                                  className="bg-blue-600 text-white px-2 py-1 rounded"
+                                  onClick={() =>
+                                    setNewJornada({
+                                      ...newJornada,
+                                      partidos: [
+                                        ...newJornada.partidos,
+                                        { local: "", visitante: "" },
+                                      ],
+                                    })
+                                  }
+                                >
+                                  Agregar Partido
+                                </button>
+                              </li>
+                            </ul>
+                          </td>
+                          <td className="border px-2 py-1 text-center">
+                            <button
+                              className="bg-green-600 text-white px-2 py-1 rounded"
+                              onClick={async () => {
+                                const updated = [
+                                  ...(calendar[activeGroup] || []),
+                                  {
+                                    jornada: newJornada.jornada,
+                                    partidos: newJornada.partidos,
+                                  },
+                                ];
+                                setCalendar({
+                                  ...calendar,
+                                  [activeGroup]: updated,
+                                });
+                                await setDoc(
+                                  doc(db, CALENDAR_COLLECTION, activeGroup),
+                                  { jornadas: updated }
+                                );
+                                setNewJornada({
+                                  jornada: "",
+                                  partidos: [{ local: "", visitante: "" }],
+                                });
+                              }}
+                            >
+                              Agregar Jornada
+                            </button>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -689,6 +1297,56 @@ function App() {
             </div>
           )}
         </section>
+
+        {/* Admin User Management UI */}
+        {isAdmin && (
+          <section className="bg-white rounded-xl border p-6 mt-8">
+            <h2 className="text-lg font-bold mb-4">
+              Gestión de Usuarios (Solo Admin)
+            </h2>
+            {userListLoading ? (
+              <div className="text-gray-500">Cargando usuarios...</div>
+            ) : userListError ? (
+              <div className="text-red-500">{userListError}</div>
+            ) : (
+              <table className="min-w-full border text-sm">
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="px-2 py-1 border">Email</th>
+                    <th className="px-2 py-1 border">Rol</th>
+                    <th className="px-2 py-1 border">Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {userList.map((u) => (
+                    <tr key={u.id}>
+                      <td className="border px-2 py-1">{u.email}</td>
+                      <td className="border px-2 py-1 text-center">{u.role}</td>
+                      <td className="border px-2 py-1 text-center">
+                        {u.role === "admin" ? (
+                          <button
+                            className="bg-yellow-500 text-white px-2 py-1 rounded mr-2"
+                            onClick={() => handleChangeUserRole(u.id, "viewer")}
+                            disabled={u.id === user?.uid}
+                          >
+                            Quitar admin
+                          </button>
+                        ) : (
+                          <button
+                            className="bg-green-600 text-white px-2 py-1 rounded"
+                            onClick={() => handleChangeUserRole(u.id, "admin")}
+                          >
+                            Hacer admin
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        )}
       </main>
 
       {/* Footer */}
