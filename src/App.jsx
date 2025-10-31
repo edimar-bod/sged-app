@@ -1,5 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { db } from "./firebase";
+import React, { useEffect, useState, useCallback } from "react";
+import { db, auth } from "./firebase";
+import {
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from "firebase/auth";
 import {
   collection,
   getDocs,
@@ -14,23 +19,27 @@ import {
   EQUIPOS_A,
   EQUIPOS_B,
 } from "./tournamentData";
+import AuthForm from "./AuthForm";
 
 // Firestore collection for teams and groups
 const TEAMS_COLLECTION = "teams";
+const ADMIN_EMAILS = ["edimar.bod@gmail.com", "edimar.marcano@gmail.com"];
 
 function App() {
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const isAdmin = user && ADMIN_EMAILS.includes(user.email);
+
   const [activeGroup, setActiveGroup] = useState("A");
   const [activeTab, setActiveTab] = useState("Jornada");
   const [loading, setLoading] = useState(true);
   const [matches, setMatches] = useState([]);
   const [initError, setInitError] = useState("");
-  // Standings state
   const [standings, setStandings] = useState({ A: [], B: [] });
-
-  // Editable teams/groups state
-  const [groupsData, setGroupsData] = useState({}); // {A: [team1, team2], B: [...], ...}
+  const [groupsData, setGroupsData] = useState({});
   const [teamsLoading, setTeamsLoading] = useState(true);
-  // const [teamsError, setTeamsError] = useState(""); // Removed unused variable
   const [newGroupName, setNewGroupName] = useState("");
   const [newTeamName, setNewTeamName] = useState("");
   const [editTeam, setEditTeam] = useState({
@@ -39,8 +48,41 @@ function App() {
     newName: "",
   });
 
+  // Auth handlers
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleLogin = async (email, password) => {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (e) {
+      setAuthError("Error de autenticación: " + e.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      await signOut(auth);
+    } catch (e) {
+      setAuthError("Error al cerrar sesión: " + e.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   // Compute standings from matches (move this above useEffect)
-  const computeStandings = React.useCallback(
+  const computeStandings = useCallback(
     (matchList) => {
       // Use dynamic groups from Firestore
       const groupKeys = Object.keys(groupsData).length
@@ -176,7 +218,7 @@ function App() {
 
   // Teams CRUD handlers
   async function handleAddGroup() {
-    if (!newGroupName.trim() || groupsData[newGroupName]) return;
+    if (!isAdmin || !newGroupName.trim() || groupsData[newGroupName]) return;
     const updated = { ...groupsData, [newGroupName]: [] };
     setGroupsData(updated);
     await setDoc(doc(db, TEAMS_COLLECTION, newGroupName), { teams: [] });
@@ -184,15 +226,15 @@ function App() {
   }
 
   async function handleDeleteGroup(group) {
-    if (!window.confirm(`¿Eliminar grupo ${group}?`)) return;
+    if (!isAdmin || !window.confirm(`¿Eliminar grupo ${group}?`)) return;
     const updated = { ...groupsData };
     delete updated[group];
     setGroupsData(updated);
-    await setDoc(doc(db, TEAMS_COLLECTION, group), { teams: [] }); // Optionally: deleteDoc
+    await setDoc(doc(db, TEAMS_COLLECTION, group), { teams: [] });
   }
 
   async function handleAddTeam(group) {
-    if (!newTeamName.trim() || !groupsData[group]) return;
+    if (!isAdmin || !newTeamName.trim() || !groupsData[group]) return;
     const updatedTeams = [...groupsData[group], newTeamName];
     const updated = { ...groupsData, [group]: updatedTeams };
     setGroupsData(updated);
@@ -201,10 +243,12 @@ function App() {
   }
 
   function startEditTeam(group, oldName) {
+    if (!isAdmin) return;
     setEditTeam({ group, oldName, newName: oldName });
   }
 
   async function handleEditTeamSave() {
+    if (!isAdmin) return;
     const { group, oldName, newName } = editTeam;
     if (!newName.trim() || !groupsData[group]) return;
     const updatedTeams = groupsData[group].map((t) =>
@@ -217,17 +261,16 @@ function App() {
   }
 
   async function handleDeleteTeam(group, team) {
-    if (!window.confirm(`¿Eliminar equipo ${team}?`)) return;
+    if (!isAdmin || !window.confirm(`¿Eliminar equipo ${team}?`)) return;
     const updatedTeams = groupsData[group].filter((t) => t !== team);
     const updated = { ...groupsData, [group]: updatedTeams };
     setGroupsData(updated);
     await setDoc(doc(db, TEAMS_COLLECTION, group), { teams: updatedTeams });
   }
 
-  // ...existing code...
-
-  // Handle score change and save to Firestore
+  // Matches CRUD handlers (restricted to admins)
   async function handleScoreChange(matchId, field, value) {
+    if (!isAdmin) return;
     const newMatches = matches.map((m) =>
       m.id === matchId ? { ...m, [field]: value } : m
     );
@@ -235,7 +278,7 @@ function App() {
   }
 
   async function handleSaveScore(match) {
-    // Only save if both scores are numbers
+    if (!isAdmin) return;
     const gl = Number(match.scoreLocal);
     const gv = Number(match.scoreVisitante);
     if (isNaN(gl) || isNaN(gv)) return;
@@ -246,7 +289,6 @@ function App() {
       scoreVisitante: gv,
       played,
     });
-    // Update local state and standings
     const updated = matches.map((m) =>
       m.id === match.id
         ? { ...m, scoreLocal: gl, scoreVisitante: gv, played }
@@ -256,7 +298,8 @@ function App() {
     computeStandings(updated);
   }
 
-  if (loading) {
+  // UI rendering
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
         <div className="text-center">
@@ -295,6 +338,17 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Auth UI */}
+      <div className="absolute top-4 right-4 z-50">
+        <AuthForm
+          onLogin={handleLogin}
+          onLogout={handleLogout}
+          user={user}
+          loading={authLoading}
+          error={authError}
+        />
+      </div>
+
       {/* Header */}
       <header className="px-6 py-8 bg-white border-b">
         <div className="max-w-4xl mx-auto">
