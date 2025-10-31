@@ -44,14 +44,14 @@ Before deploying to production, verify these steps to avoid auth/invalid-api-key
   - `VITE_FIREBASE_MEASUREMENT_ID` (optional)
 - The build will run a precheck and fail if something is missing or malformed.
 
-2. Authorized domains (Firebase Auth)
+1. Authorized domains (Firebase Auth)
 
 - Firebase Console → Authentication → Settings → Authorized domains:
   - Add `your-project.web.app`
   - Add `your-project.firebaseapp.com`
   - Add any custom domain you use
 
-3. Build and Deploy
+1. Build and Deploy
 
 ```sh
 npm run build
@@ -64,14 +64,34 @@ Or use the combined script:
 npm run deploy
 ```
 
-4. Troubleshooting
+1. Troubleshooting
 
 - If you see `auth/invalid-api-key` in production:
   - Rebuild after updating `.env` (Vite injects env at build time).
   - Confirm the API key starts with `AIza` and belongs to the same Google Cloud project as this Firebase app.
   - If API key restrictions are enabled (HTTP referrers), include both `*.web.app` and `*.firebaseapp.com` (and any custom domain).
 
-5. Security
+1. Security
 
 - Never commit `.env`. It is ignored via `.gitignore`.
 - Rotate exposed API keys immediately and redeploy.
+
+## CI setup (GitHub Actions)
+
+For automatic deploys on merges/PRs, set these repository secrets so the build step has the required Vite environment variables (used by the prebuild validator and Vite itself):
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET` (must end with `.appspot.com`)
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MEASUREMENT_ID` (optional)
+
+Where: GitHub → Repository → Settings → Secrets and variables → Actions → New repository secret.
+
+Notes:
+
+- The workflows in `.github/workflows/` inject these secrets into `npm run build`.
+- If any secret is missing or malformed, the prebuild script (`scripts/validate-env.mjs`) will fail with a clear message.
+- If you restrict the API key by HTTP referrers, include `*.web.app`, `*.firebaseapp.com`, and any custom domain you use.
