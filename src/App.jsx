@@ -15,6 +15,7 @@ import {
   updateDoc as updateUserDoc,
   onSnapshot,
 } from "firebase/firestore";
+
 import {
   JORNADA_2_PARTIDOS,
   CALENDARIO_A,
@@ -22,9 +23,9 @@ import {
   EQUIPOS_A,
   EQUIPOS_B,
 } from "./tournamentData";
+import AuthForm from "./AuthForm";
 
 const CALENDAR_COLLECTION = "calendario";
-import AuthForm from "./AuthForm";
 
 // Firestore collection for teams and groups
 const TEAMS_COLLECTION = "teams";
