@@ -224,7 +224,7 @@ function App() {
     [groupsData]
   );
 
-  // On mount, load Jornada 2 matches and teams/groups from Firestore, or initialize if empty
+  // Load Jornada 2 matches from Firestore (on mount only)
   useEffect(() => {
     async function loadMatches() {
       try {
@@ -232,7 +232,6 @@ function App() {
         const snap = await getDocs(colRef);
         let loadedMatches;
         if (snap.empty) {
-          // Initialize Firestore with static data if not present
           await Promise.all(
             JORNADA_2_PARTIDOS.map((m) =>
               setDoc(doc(db, "jornada_2", m.id), {
@@ -260,6 +259,11 @@ function App() {
         setLoading(false);
       }
     }
+    loadMatches();
+  }, [computeStandings]);
+
+  // Load teams/groups from Firestore (on mount only)
+  useEffect(() => {
     async function loadTeams() {
       setTeamsLoading(true);
       try {
@@ -267,7 +271,6 @@ function App() {
         const snap = await getDocs(colRef);
         let loadedGroups = {};
         if (snap.empty) {
-          // Initialize with static data if not present
           loadedGroups = { A: EQUIPOS_A, B: EQUIPOS_B };
           await Promise.all(
             Object.entries(loadedGroups).map(([group, teams]) =>
@@ -285,6 +288,11 @@ function App() {
         setTeamsLoading(false);
       }
     }
+    loadTeams();
+  }, []);
+
+  // Load calendar from Firestore (on mount only)
+  useEffect(() => {
     async function loadCalendar() {
       setCalendarLoading(true);
       setCalendarError("");
@@ -311,10 +319,8 @@ function App() {
         setCalendarLoading(false);
       }
     }
-    loadMatches();
-    loadTeams();
     loadCalendar();
-  }, [computeStandings]);
+  }, []);
 
   // Teams CRUD handlers
   async function handleAddGroup() {
@@ -681,46 +687,45 @@ function App() {
               <h3 className="text-center font-bold mb-2">Partidos Jornada 2</h3>
               {isAdmin && (
                 <div className="mb-4 flex flex-wrap gap-2 items-end">
-                  <input
-                    type="text"
+                  <select
                     className="border rounded px-2 py-1"
-                    placeholder="Local"
                     value={newMatch.local}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, local: e.target.value })
                     }
-                  />
-                  <input
-                    type="text"
+                  >
+                    <option value="">Local</option>
+                    {(groupsData[activeGroup] || []).map((team) => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     className="border rounded px-2 py-1"
-                    placeholder="Visitante"
                     value={newMatch.visitante}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, visitante: e.target.value })
                     }
-                  />
+                  >
+                    <option value="">Visitante</option>
+                    {(groupsData[activeGroup] || []).map((team) => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
                   <input
-                    type="text"
+                    type="date"
                     className="border rounded px-2 py-1"
-                    placeholder="Día"
-                    value={newMatch.dia}
-                    onChange={(e) =>
-                      setNewMatch({ ...newMatch, dia: e.target.value })
-                    }
-                  />
-                  <input
-                    type="text"
-                    className="border rounded px-2 py-1"
-                    placeholder="Fecha"
                     value={newMatch.fecha}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, fecha: e.target.value })
                     }
                   />
                   <input
-                    type="text"
+                    type="time"
                     className="border rounded px-2 py-1"
-                    placeholder="Hora"
                     value={newMatch.hora}
                     onChange={(e) =>
                       setNewMatch({ ...newMatch, hora: e.target.value })
@@ -744,8 +749,7 @@ function App() {
                     >
                       {editingMatch && editingMatch.id === match.id ? (
                         <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
-                          <input
-                            type="text"
+                          <select
                             className="border rounded px-2 py-1"
                             value={editingMatch.local}
                             onChange={(e) =>
@@ -754,9 +758,15 @@ function App() {
                                 local: e.target.value,
                               })
                             }
-                          />
-                          <input
-                            type="text"
+                          >
+                            <option value="">Local</option>
+                            {(groupsData[activeGroup] || []).map((team) => (
+                              <option key={team} value={team}>
+                                {team}
+                              </option>
+                            ))}
+                          </select>
+                          <select
                             className="border rounded px-2 py-1"
                             value={editingMatch.visitante}
                             onChange={(e) =>
@@ -765,20 +775,16 @@ function App() {
                                 visitante: e.target.value,
                               })
                             }
-                          />
+                          >
+                            <option value="">Visitante</option>
+                            {(groupsData[activeGroup] || []).map((team) => (
+                              <option key={team} value={team}>
+                                {team}
+                              </option>
+                            ))}
+                          </select>
                           <input
-                            type="text"
-                            className="border rounded px-2 py-1"
-                            value={editingMatch.dia}
-                            onChange={(e) =>
-                              setEditingMatch({
-                                ...editingMatch,
-                                dia: e.target.value,
-                              })
-                            }
-                          />
-                          <input
-                            type="text"
+                            type="date"
                             className="border rounded px-2 py-1"
                             value={editingMatch.fecha}
                             onChange={(e) =>
@@ -789,7 +795,7 @@ function App() {
                             }
                           />
                           <input
-                            type="text"
+                            type="time"
                             className="border rounded px-2 py-1"
                             value={editingMatch.hora}
                             onChange={(e) =>
