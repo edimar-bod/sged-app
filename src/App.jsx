@@ -16,13 +16,7 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 
-import {
-  JORNADA_2_PARTIDOS,
-  CALENDARIO_A,
-  CALENDARIO_B,
-  EQUIPOS_A,
-  EQUIPOS_B,
-} from "./tournamentData";
+// Eliminado import de tournamentData.js por error de sintaxis y migración finalizada
 import AuthForm from "./AuthForm";
 
 const CALENDAR_COLLECTION = "calendario";
@@ -228,14 +222,7 @@ function App() {
         const colRef = collection(db, TEAMS_COLLECTION);
         const snap = await getDocs(colRef);
         let loadedGroups = {};
-        if (snap.empty) {
-          loadedGroups = { A: EQUIPOS_A, B: EQUIPOS_B };
-          await Promise.all(
-            Object.entries(loadedGroups).map(([group, teams]) =>
-              setDoc(doc(db, TEAMS_COLLECTION, group), { teams })
-            )
-          );
-        } else {
+        if (!snap.empty) {
           snap.docs.forEach((d) => {
             loadedGroups[d.id] = d.data().teams;
           });
@@ -258,14 +245,7 @@ function App() {
         const colRef = collection(db, CALENDAR_COLLECTION);
         const snap = await getDocs(colRef);
         let loadedCalendar = { A: [], B: [] };
-        if (snap.empty) {
-          loadedCalendar = { A: CALENDARIO_A, B: CALENDARIO_B };
-          await Promise.all(
-            Object.entries(loadedCalendar).map(([group, jornadas]) =>
-              setDoc(doc(db, CALENDAR_COLLECTION, group), { jornadas })
-            )
-          );
-        } else {
+        if (!snap.empty) {
           snap.docs.forEach((d) => {
             loadedCalendar[d.id] = d.data().jornadas;
           });
@@ -290,7 +270,13 @@ function App() {
   }
 
   async function handleDeleteGroup(group) {
-    if (!isAdmin || !window.confirm(`¿Eliminar grupo ${group}?`)) return;
+    if (!isAdmin) return;
+    if (
+      !window.confirm(
+        `⚠️ ADVERTENCIA: Esta acción eliminará el grupo "${group}" y todos sus equipos. ¿Deseas continuar?`
+      )
+    )
+      return;
     const updated = { ...groupsData };
     delete updated[group];
     setGroupsData(updated);
@@ -325,7 +311,13 @@ function App() {
   }
 
   async function handleDeleteTeam(group, team) {
-    if (!isAdmin || !window.confirm(`¿Eliminar equipo ${team}?`)) return;
+    if (!isAdmin) return;
+    if (
+      !window.confirm(
+        `⚠️ ADVERTENCIA: Esta acción eliminará el equipo "${team}" del grupo "${group}". ¿Deseas continuar?`
+      )
+    )
+      return;
     const updatedTeams = groupsData[group].filter((t) => t !== team);
     const updated = { ...groupsData, [group]: updatedTeams };
     setGroupsData(updated);
@@ -363,6 +355,12 @@ function App() {
 
   async function handleDeleteJornadaPartido(jornadaIndex, partidoIndex) {
     if (!isAdmin) return;
+    if (
+      !window.confirm(
+        `⚠️ ADVERTENCIA: Esta acción eliminará el partido seleccionado de la jornada. ¿Deseas continuar?`
+      )
+    )
+      return;
     try {
       const updatedJornadas = [...(calendar[activeGroup] || [])];
       updatedJornadas[jornadaIndex].partidos = updatedJornadas[
