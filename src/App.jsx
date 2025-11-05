@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { db, auth } from "./firebase";
 import {
   signInWithEmailAndPassword,
@@ -41,9 +41,6 @@ function App() {
 
   const [activeGroup, setActiveGroup] = useState("A");
   const [activeTab, setActiveTab] = useState("Jornada");
-  const [loading, setLoading] = useState(true);
-  const [matches, setMatches] = useState([]);
-  const [initError, setInitError] = useState("");
   const [standings, setStandings] = useState({ A: [], B: [] });
   const [groupsData, setGroupsData] = useState({});
   const [teamsLoading, setTeamsLoading] = useState(true);
@@ -155,112 +152,73 @@ function App() {
   };
 
   // Compute standings from matches (move this above useEffect)
-  const computeStandings = useCallback(
-    (matchList) => {
-      // Use dynamic groups from Firestore
-      const groupKeys = Object.keys(groupsData).length
-        ? Object.keys(groupsData)
-        : ["A", "B"];
-      const standingsObj = {};
-      groupKeys.forEach((group) => {
-        const teams = groupsData[group] || [];
-        const stats = {};
-        teams.forEach((team) => {
-          stats[team] = {
-            equipo: team,
-            PJ: 0,
-            PG: 0,
-            PE: 0,
-            PP: 0,
-            GF: 0,
-            GC: 0,
-            PTS: 0,
-          };
-        });
-        matchList
-          .filter((m) => m.grupo === group && m.played)
-          .forEach((m) => {
-            const l = m.local;
-            const v = m.visitante;
-            const gl = Number(m.scoreLocal);
-            const gv = Number(m.scoreVisitante);
-            if (!isNaN(gl) && !isNaN(gv)) {
+  // Compute standings from calendar data whenever calendar or groupsData changes
+  useEffect(() => {
+    const groupKeys = Object.keys(groupsData).length
+      ? Object.keys(groupsData)
+      : ["A", "B"];
+    const standingsObj = {};
+    groupKeys.forEach((group) => {
+      const teams = groupsData[group] || [];
+      const stats = {};
+      teams.forEach((team) => {
+        stats[team] = {
+          equipo: team,
+          PJ: 0,
+          PG: 0,
+          PE: 0,
+          PP: 0,
+          GF: 0,
+          GC: 0,
+          PTS: 0,
+        };
+      });
+      // Recorre todas las jornadas y partidos del calendario
+      (calendar[group] || []).forEach((jornada) => {
+        (jornada.partidos || []).forEach((p) => {
+          const l = p.local;
+          const v = p.visitante;
+          const gl = Number(p.scoreLocal);
+          const gv = Number(p.scoreVisitante);
+          // Solo cuenta si ambos scores son válidos
+          if (!isNaN(gl) && !isNaN(gv)) {
+            if (stats[l]) {
+              stats[l].PJ += 1;
+              stats[l].GF += gl;
+              stats[l].GC += gv;
+            }
+            if (stats[v]) {
+              stats[v].PJ += 1;
+              stats[v].GF += gv;
+              stats[v].GC += gl;
+            }
+            if (gl > gv && stats[l]) {
+              stats[l].PG += 1;
+              stats[l].PTS += 3;
+            } else if (gl < gv && stats[v]) {
+              stats[v].PG += 1;
+              stats[v].PTS += 3;
+            } else if (gl === gv) {
               if (stats[l]) {
-                stats[l].PJ += 1;
-                stats[l].GF += gl;
-                stats[l].GC += gv;
+                stats[l].PE += 1;
+                stats[l].PTS += 1;
               }
               if (stats[v]) {
-                stats[v].PJ += 1;
-                stats[v].GF += gv;
-                stats[v].GC += gl;
+                stats[v].PE += 1;
+                stats[v].PTS += 1;
               }
-              if (gl > gv && stats[l]) {
-                stats[l].PG += 1;
-                stats[l].PTS += 3;
-              } else if (gl < gv && stats[v]) {
-                stats[v].PG += 1;
-                stats[v].PTS += 3;
-              } else if (gl === gv) {
-                if (stats[l]) {
-                  stats[l].PE += 1;
-                  stats[l].PTS += 1;
-                }
-                if (stats[v]) {
-                  stats[v].PE += 1;
-                  stats[v].PTS += 1;
-                }
-              }
-              if (gl < gv && stats[l]) stats[l].PP += 1;
-              if (gl > gv && stats[v]) stats[v].PP += 1;
             }
-          });
-        standingsObj[group] = Object.values(stats).sort(
-          (a, b) => b.PTS - a.PTS || b.GF - a.GF
-        );
+            if (gl < gv && stats[l]) stats[l].PP += 1;
+            if (gl > gv && stats[v]) stats[v].PP += 1;
+          }
+        });
       });
-      setStandings(standingsObj);
-    },
-    [groupsData]
-  );
-
-  // Load Jornada 2 matches from Firestore (on mount only)
-  useEffect(() => {
-    async function loadMatches() {
-      try {
-        const colRef = collection(db, "jornada_2");
-        const snap = await getDocs(colRef);
-        let loadedMatches;
-        if (snap.empty) {
-          await Promise.all(
-            JORNADA_2_PARTIDOS.map((m) =>
-              setDoc(doc(db, "jornada_2", m.id), {
-                ...m,
-                scoreLocal: null,
-                scoreVisitante: null,
-                played: false,
-              })
-            )
-          );
-          loadedMatches = JORNADA_2_PARTIDOS.map((m) => ({
-            ...m,
-            scoreLocal: null,
-            scoreVisitante: null,
-            played: false,
-          }));
-        } else {
-          loadedMatches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        }
-        setMatches(loadedMatches);
-        setLoading(false);
-        computeStandings(loadedMatches);
-      } catch (e) {
-        setInitError("Error loading matches: " + e.message);
-        setLoading(false);
-      }
-    }
-    loadMatches();
-  }, [computeStandings]);
+      standingsObj[group] = Object.values(stats).sort(
+        (a, b) => b.PTS - a.PTS || b.GF - a.GF
+      );
+    });
+    setStandings(standingsObj);
+  }, [calendar, groupsData]);
 
   // Load teams/groups from Firestore (on mount only)
   useEffect(() => {
@@ -374,127 +332,58 @@ function App() {
     await setDoc(doc(db, TEAMS_COLLECTION, group), { teams: updatedTeams });
   }
 
-  // Matches CRUD handlers (restricted to admins)
-  async function handleScoreChange(matchId, field, value) {
-    if (!isAdmin) return;
-    const newMatches = matches.map((m) =>
-      m.id === matchId ? { ...m, [field]: value } : m
-    );
-    setMatches(newMatches);
+  // Admin: Add/Edit/Delete Jornada (matches) - DEPRECATED (using calendario instead)
+  // Handlers para editar/guardar partidos en jornadas (calendario)
+  async function handleSaveJornadaPartido(jornadaIndex, partidoIndex) {
+    if (!isAdmin || !editingJornada) return;
+    try {
+      const updatedJornadas = [...(calendar[activeGroup] || [])];
+      updatedJornadas[jornadaIndex].partidos[partidoIndex] = {
+        local: editingJornada.local,
+        visitante: editingJornada.visitante,
+        scoreLocal: editingJornada.scoreLocal,
+        scoreVisitante: editingJornada.scoreVisitante,
+        fecha: editingJornada.fecha,
+        hora: editingJornada.hora,
+      };
+      // Actualizar en Firestore
+      await updateDoc(doc(db, CALENDAR_COLLECTION, activeGroup), {
+        jornadas: updatedJornadas,
+      });
+      // Actualizar estado local
+      setCalendar({
+        ...calendar,
+        [activeGroup]: updatedJornadas,
+      });
+      setEditingJornada(null);
+    } catch (e) {
+      alert("Error guardando partido: " + e.message);
+    }
   }
 
-  async function handleSaveScore(match) {
+  async function handleDeleteJornadaPartido(jornadaIndex, partidoIndex) {
     if (!isAdmin) return;
-    const gl = Number(match.scoreLocal);
-    const gv = Number(match.scoreVisitante);
-    if (isNaN(gl) || isNaN(gv)) return;
-    const played = true;
-    const matchRef = doc(db, "jornada_2", match.id);
-    await updateDoc(matchRef, {
-      scoreLocal: gl,
-      scoreVisitante: gv,
-      played,
-    });
-    const updated = matches.map((m) =>
-      m.id === match.id
-        ? { ...m, scoreLocal: gl, scoreVisitante: gv, played }
-        : m
-    );
-    setMatches(updated);
-    computeStandings(updated);
-  }
-
-  // Admin: Add/Edit/Delete Jornada (matches)
-  const [editingMatch, setEditingMatch] = useState(null); // match object or null
-  const [newMatch, setNewMatch] = useState({
-    grupo: activeGroup,
-    local: "",
-    visitante: "",
-    dia: "",
-    fecha: "",
-    hora: "",
-  });
-
-  async function handleAddMatch() {
-    if (!isAdmin) return;
-    // Validation: both teams selected and cannot be the same
-    if (!newMatch.local || !newMatch.visitante) {
-      alert("Selecciona equipo Local y Visitante");
-      return;
+    try {
+      const updatedJornadas = [...(calendar[activeGroup] || [])];
+      updatedJornadas[jornadaIndex].partidos = updatedJornadas[
+        jornadaIndex
+      ].partidos.filter((_, idx) => idx !== partidoIndex);
+      // Actualizar en Firestore
+      await updateDoc(doc(db, CALENDAR_COLLECTION, activeGroup), {
+        jornadas: updatedJornadas,
+      });
+      // Actualizar estado local
+      setCalendar({
+        ...calendar,
+        [activeGroup]: updatedJornadas,
+      });
+      setEditingJornada(null);
+    } catch (e) {
+      alert("Error eliminando partido: " + e.message);
     }
-    if (newMatch.local === newMatch.visitante) {
-      alert("Local y Visitante no pueden ser el mismo equipo");
-      return;
-    }
-    const id = `${newMatch.grupo}_${newMatch.local}_${
-      newMatch.visitante
-    }_${Date.now()}`;
-    const matchObj = {
-      ...newMatch,
-      id,
-      scoreLocal: null,
-      scoreVisitante: null,
-      played: false,
-    };
-    await setDoc(doc(db, "jornada_2", id), matchObj);
-    setMatches([...matches, matchObj]);
-    setNewMatch({
-      grupo: activeGroup,
-      local: "",
-      visitante: "",
-      dia: "",
-      fecha: "",
-      hora: "",
-    });
-  }
-
-  async function handleEditMatchSave() {
-    if (!isAdmin || !editingMatch) return;
-    if (!editingMatch.local || !editingMatch.visitante) {
-      alert("Selecciona equipo Local y Visitante");
-      return;
-    }
-    if (editingMatch.local === editingMatch.visitante) {
-      alert("Local y Visitante no pueden ser el mismo equipo");
-      return;
-    }
-    await updateDoc(doc(db, "jornada_2", editingMatch.id), editingMatch);
-    setMatches(
-      matches.map((m) => (m.id === editingMatch.id ? editingMatch : m))
-    );
-    setEditingMatch(null);
-  }
-
-  async function handleDeleteMatch(matchId) {
-    if (!isAdmin) return;
-    await setDoc(doc(db, "jornada_2", matchId), {}, { merge: false });
-    setMatches(matches.filter((m) => m.id !== matchId));
   }
 
   // UI rendering
-  if (loading || authLoading) {
-    return (
-      <div className="min-h-screen grid place-items-center bg-slate-900 text-white">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
-          <p>Conectando y cargando datos persistentes...</p>
-        </div>
-      </div>
-    );
-  }
-  if (initError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-red-100">
-        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md">
-          <h2 className="text-xl font-bold text-red-600 mb-4">
-            Error de inicialización
-          </h2>
-          <p className="text-gray-700">{initError}</p>
-        </div>
-      </div>
-    );
-  }
-
   const TabButton = ({ label }) => (
     <button
       onClick={() => setActiveTab(label)}
@@ -726,250 +615,229 @@ function App() {
               <div className="w-16 h-16 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center mx-auto mb-2">
                 <span className="text-3xl">🗓️</span>
               </div>
-              <h3 className="text-center font-bold mb-2">Partidos Jornada 2</h3>
-              {isAdmin && (
-                <div className="mb-4 flex flex-wrap sm:flex-nowrap gap-2 items-end">
-                  <select
-                    className="border rounded px-2 py-1 w-full sm:w-auto"
-                    value={newMatch.local}
-                    onChange={(e) =>
-                      setNewMatch({ ...newMatch, local: e.target.value })
-                    }
-                  >
-                    <option value="">Local</option>
-                    {(groupsData[activeGroup] || []).map((team) => (
-                      <option
-                        key={team}
-                        value={team}
-                        disabled={team === newMatch.visitante}
-                      >
-                        {team}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="border rounded px-2 py-1 w-full sm:w-auto"
-                    value={newMatch.visitante}
-                    onChange={(e) =>
-                      setNewMatch({ ...newMatch, visitante: e.target.value })
-                    }
-                  >
-                    <option value="">Visitante</option>
-                    {(groupsData[activeGroup] || []).map((team) => (
-                      <option
-                        key={team}
-                        value={team}
-                        disabled={team === newMatch.local}
-                      >
-                        {team}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="date"
-                    className="border rounded px-2 py-1 w-full sm:w-auto"
-                    value={newMatch.fecha}
-                    onChange={(e) =>
-                      setNewMatch({ ...newMatch, fecha: e.target.value })
-                    }
-                  />
-                  <input
-                    type="time"
-                    className="border rounded px-2 py-1 w-full sm:w-auto"
-                    value={newMatch.hora}
-                    onChange={(e) =>
-                      setNewMatch({ ...newMatch, hora: e.target.value })
-                    }
-                  />
-                  <button
-                    className="bg-green-600 text-white px-3 py-1 rounded disabled:opacity-50"
-                    onClick={handleAddMatch}
-                    disabled={
-                      !isAdmin ||
-                      !newMatch.local ||
-                      !newMatch.visitante ||
-                      newMatch.local === newMatch.visitante
-                    }
-                  >
-                    Agregar Partido
-                  </button>
+              <h3 className="text-center font-bold mb-2">
+                Todas las Jornadas - Grupo {activeGroup}
+              </h3>
+              {calendarLoading && (
+                <div className="text-center text-gray-500">
+                  Cargando jornadas...
                 </div>
               )}
-              <div className="space-y-3">
-                {matches
-                  .filter((m) => m.grupo === activeGroup)
-                  .map((match) => (
-                    <div
-                      key={match.id}
-                      className="bg-slate-50 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between border"
-                    >
-                      {editingMatch && editingMatch.id === match.id ? (
-                        <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
-                          <select
-                            className="border rounded px-2 py-1"
-                            value={editingMatch.local}
-                            onChange={(e) =>
-                              setEditingMatch({
-                                ...editingMatch,
-                                local: e.target.value,
-                              })
-                            }
+              {calendarError && (
+                <div className="text-center text-red-500">{calendarError}</div>
+              )}
+              {!calendarLoading &&
+                !calendarError &&
+                (calendar[activeGroup] || []).length === 0 && (
+                  <div className="text-center text-gray-500">
+                    No hay jornadas registradas
+                  </div>
+                )}
+              <div className="space-y-6">
+                {(calendar[activeGroup] || []).map((jornada, jornadaIndex) => (
+                  <div
+                    key={jornadaIndex}
+                    className="bg-white rounded-lg border-2 border-indigo-200 p-4"
+                  >
+                    <h4 className="text-lg font-bold text-indigo-600 mb-4">
+                      {jornada.jornada}
+                    </h4>
+                    <div className="space-y-3">
+                      {(jornada.partidos || []).map((partido, partidoIndex) => {
+                        const matchKey = `${jornadaIndex}-${partidoIndex}`;
+                        const isEditing = editingJornada?.matchKey === matchKey;
+                        return (
+                          <div
+                            key={matchKey}
+                            className="bg-slate-50 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between border"
                           >
-                            <option value="">Local</option>
-                            {(groupsData[activeGroup] || []).map((team) => (
-                              <option
-                                key={team}
-                                value={team}
-                                disabled={team === editingMatch.visitante}
-                              >
-                                {team}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            className="border rounded px-2 py-1"
-                            value={editingMatch.visitante}
-                            onChange={(e) =>
-                              setEditingMatch({
-                                ...editingMatch,
-                                visitante: e.target.value,
-                              })
-                            }
-                          >
-                            <option value="">Visitante</option>
-                            {(groupsData[activeGroup] || []).map((team) => (
-                              <option
-                                key={team}
-                                value={team}
-                                disabled={team === editingMatch.local}
-                              >
-                                {team}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            type="date"
-                            className="border rounded px-2 py-1"
-                            value={editingMatch.fecha}
-                            onChange={(e) =>
-                              setEditingMatch({
-                                ...editingMatch,
-                                fecha: e.target.value,
-                              })
-                            }
-                          />
-                          <input
-                            type="time"
-                            className="border rounded px-2 py-1"
-                            value={editingMatch.hora}
-                            onChange={(e) =>
-                              setEditingMatch({
-                                ...editingMatch,
-                                hora: e.target.value,
-                              })
-                            }
-                          />
-                          <button
-                            className="bg-green-600 text-white px-2 py-1 rounded disabled:opacity-50"
-                            onClick={handleEditMatchSave}
-                            disabled={
-                              !editingMatch?.local ||
-                              !editingMatch?.visitante ||
-                              editingMatch.local === editingMatch.visitante
-                            }
-                          >
-                            Guardar
-                          </button>
-                          <button
-                            className="bg-gray-400 text-white px-2 py-1 rounded"
-                            onClick={() => setEditingMatch(null)}
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
-                          <span className="font-semibold text-gray-800 w-32 text-right">
-                            {match.local}
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-12 text-center border rounded mx-1"
-                            value={match.scoreLocal ?? ""}
-                            onChange={(e) =>
-                              handleScoreChange(
-                                match.id,
-                                "scoreLocal",
-                                e.target.value
-                              )
-                            }
-                            disabled={match.played || !isAdmin}
-                          />
-                          <span className="mx-2 text-gray-500 font-bold">
-                            vs
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            className="w-12 text-center border rounded mx-1"
-                            value={match.scoreVisitante ?? ""}
-                            onChange={(e) =>
-                              handleScoreChange(
-                                match.id,
-                                "scoreVisitante",
-                                e.target.value
-                              )
-                            }
-                            disabled={match.played || !isAdmin}
-                          />
-                          <span className="font-semibold text-gray-800 w-32 text-left">
-                            {match.visitante}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {match.dia} {match.fecha} {match.hora}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 mt-2 md:mt-0">
-                        {!match.played && (
-                          <button
-                            className="ml-4 px-3 py-1 bg-indigo-600 text-white rounded shadow hover:bg-indigo-700 transition disabled:opacity-50"
-                            onClick={() => handleSaveScore(match)}
-                            disabled={!isAdmin}
-                          >
-                            Guardar
-                          </button>
-                        )}
-                        {isAdmin && (
-                          <>
-                            <button
-                              className="bg-yellow-500 text-white px-2 py-1 rounded"
-                              onClick={() => setEditingMatch(match)}
-                            >
-                              Editar
-                            </button>
-                            <button
-                              className="bg-red-600 text-white px-2 py-1 rounded"
-                              onClick={() => handleDeleteMatch(match.id)}
-                            >
-                              Eliminar
-                            </button>
-                          </>
-                        )}
-                        {!isAdmin && (
-                          <span className="ml-4 text-xs text-red-500">
-                            Solo administradores pueden editar resultados
-                          </span>
-                        )}
-                        {match.played && (
-                          <span className="ml-4 text-green-600 font-bold">
-                            Guardado
-                          </span>
-                        )}
-                      </div>
+                            {isEditing ? (
+                              <div className="flex-1 flex flex-col sm:flex-row sm:flex-wrap gap-2">
+                                <select
+                                  className="border rounded px-2 py-1 w-full sm:w-auto"
+                                  value={editingJornada.local || ""}
+                                  onChange={(e) =>
+                                    setEditingJornada({
+                                      ...editingJornada,
+                                      local: e.target.value,
+                                    })
+                                  }
+                                >
+                                  <option value="">Local</option>
+                                  {(groupsData[activeGroup] || []).map(
+                                    (team) => (
+                                      <option
+                                        key={team}
+                                        value={team}
+                                        disabled={
+                                          team === editingJornada.visitante
+                                        }
+                                      >
+                                        {team}
+                                      </option>
+                                    )
+                                  )}
+                                </select>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="w-16 text-center border rounded"
+                                  placeholder="Goles"
+                                  value={editingJornada.scoreLocal ?? ""}
+                                  onChange={(e) =>
+                                    setEditingJornada({
+                                      ...editingJornada,
+                                      scoreLocal: e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined,
+                                    })
+                                  }
+                                />
+                                <span className="text-gray-400 font-bold">
+                                  vs
+                                </span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="w-16 text-center border rounded"
+                                  placeholder="Goles"
+                                  value={editingJornada.scoreVisitante ?? ""}
+                                  onChange={(e) =>
+                                    setEditingJornada({
+                                      ...editingJornada,
+                                      scoreVisitante: e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined,
+                                    })
+                                  }
+                                />
+                                <select
+                                  className="border rounded px-2 py-1 w-full sm:w-auto"
+                                  value={editingJornada.visitante || ""}
+                                  onChange={(e) =>
+                                    setEditingJornada({
+                                      ...editingJornada,
+                                      visitante: e.target.value,
+                                    })
+                                  }
+                                >
+                                  <option value="">Visitante</option>
+                                  {(groupsData[activeGroup] || []).map(
+                                    (team) => (
+                                      <option
+                                        key={team}
+                                        value={team}
+                                        disabled={team === editingJornada.local}
+                                      >
+                                        {team}
+                                      </option>
+                                    )
+                                  )}
+                                </select>
+                                <input
+                                  type="date"
+                                  className="border rounded px-2 py-1 w-full sm:w-auto"
+                                  value={editingJornada.fecha || ""}
+                                  onChange={(e) =>
+                                    setEditingJornada({
+                                      ...editingJornada,
+                                      fecha: e.target.value,
+                                    })
+                                  }
+                                />
+                                <input
+                                  type="time"
+                                  className="border rounded px-2 py-1 w-full sm:w-auto"
+                                  value={editingJornada.hora || ""}
+                                  onChange={(e) =>
+                                    setEditingJornada({
+                                      ...editingJornada,
+                                      hora: e.target.value,
+                                    })
+                                  }
+                                />
+                                <button
+                                  className="bg-green-600 text-white px-2 py-1 rounded disabled:opacity-50 w-full sm:w-auto"
+                                  onClick={() =>
+                                    handleSaveJornadaPartido(
+                                      jornadaIndex,
+                                      partidoIndex
+                                    )
+                                  }
+                                  disabled={
+                                    !editingJornada?.local ||
+                                    !editingJornada?.visitante ||
+                                    editingJornada.local ===
+                                      editingJornada.visitante
+                                  }
+                                >
+                                  Guardar
+                                </button>
+                                <button
+                                  className="bg-gray-400 text-white px-2 py-1 rounded w-full sm:w-auto"
+                                  onClick={() => setEditingJornada(null)}
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex-1 flex flex-col md:flex-row md:items-center gap-2">
+                                  <span className="font-semibold text-gray-800 w-32 text-right">
+                                    {partido.local}
+                                  </span>
+                                  <span className="text-lg font-bold text-indigo-600 w-16 text-center">
+                                    {partido.scoreLocal ?? "-"}
+                                  </span>
+                                  <span className="mx-2 text-gray-500 font-bold">
+                                    vs
+                                  </span>
+                                  <span className="text-lg font-bold text-indigo-600 w-16 text-center">
+                                    {partido.scoreVisitante ?? "-"}
+                                  </span>
+                                  <span className="font-semibold text-gray-800 w-32 text-left">
+                                    {partido.visitante}
+                                  </span>
+                                  <span className="text-xs text-gray-400 whitespace-nowrap">
+                                    {partido.fecha} {partido.hora}
+                                  </span>
+                                </div>
+                                {isAdmin && (
+                                  <div className="flex items-center gap-2 mt-2 md:mt-0">
+                                    <button
+                                      className="bg-yellow-500 text-white px-2 py-1 rounded text-sm"
+                                      onClick={() =>
+                                        setEditingJornada({
+                                          ...partido,
+                                          matchKey,
+                                          jornadaIndex,
+                                          partidoIndex,
+                                        })
+                                      }
+                                    >
+                                      Editar
+                                    </button>
+                                    <button
+                                      className="bg-red-600 text-white px-2 py-1 rounded text-sm"
+                                      onClick={() =>
+                                        handleDeleteJornadaPartido(
+                                          jornadaIndex,
+                                          partidoIndex
+                                        )
+                                      }
+                                    >
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </div>
+                ))}
               </div>
             </div>
           )}
