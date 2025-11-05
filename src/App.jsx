@@ -165,6 +165,8 @@ function App() {
           GF: 0,
           GC: 0,
           PTS: 0,
+          // DIF solo para uso interno
+          DIF: 0,
         };
       });
       // Recorre todas las jornadas y partidos del calendario
@@ -207,9 +209,16 @@ function App() {
           }
         });
       });
-      standingsObj[group] = Object.values(stats).sort(
-        (a, b) => b.PTS - a.PTS || b.GF - a.GF
-      );
+      // Calcular DIF para cada equipo (uso interno)
+      Object.values(stats).forEach((row) => {
+        row.DIF = row.GF - row.GC;
+      });
+      // Ordenar según PTS, DIF, GF (reglamento)
+      standingsObj[group] = Object.values(stats).sort((a, b) => {
+        if (b.PTS !== a.PTS) return b.PTS - a.PTS;
+        if (b.DIF !== a.DIF) return b.DIF - a.DIF;
+        return b.GF - a.GF;
+      });
     });
     setStandings(standingsObj);
   }, [calendar, groupsData]);
@@ -503,7 +512,8 @@ function App() {
         {/* Contenido Principal */}
         <section className="bg-white rounded-xl border p-6">
           <h2 className="text-xl font-semibold mb-4">
-            {activeTab} - Grupo {activeGroup}
+            {activeTab === "Jornada" ? "Jornadas" : activeTab} - Grupo{" "}
+            {activeGroup}
           </h2>
 
           {/* Equipos CRUD UI */}
@@ -637,7 +647,7 @@ function App() {
                     className="bg-white rounded-lg border-2 border-indigo-200 p-4"
                   >
                     <h4 className="text-lg font-bold text-indigo-600 mb-4">
-                      {jornada.jornada}
+                      {`Jornada ${jornadaIndex + 1}`}
                     </h4>
                     <div className="space-y-3">
                       {(jornada.partidos || []).map((partido, partidoIndex) => {
