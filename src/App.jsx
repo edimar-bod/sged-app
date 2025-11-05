@@ -435,7 +435,6 @@ function App() {
           <p className="text-slate-600">Fundación Corazón de Azúcar</p>
         </div>
       </header>
-
       <main className="max-w-4xl mx-auto px-6 py-8 space-y-8">
         {/* Selector de Grupo dinámico */}
         <div className="flex gap-3 flex-wrap">
@@ -958,6 +957,12 @@ function App() {
                                       <button
                                         className="bg-red-600 text-white px-2 py-1 rounded ml-2"
                                         onClick={() => {
+                                          if (
+                                            !window.confirm(
+                                              "⚠️ ADVERTENCIA: Esta acción eliminará el partido del editor de jornada. ¿Deseas continuar?"
+                                            )
+                                          )
+                                            return;
                                           const partidos =
                                             editingJornada.partidos.filter(
                                               (_, idx) => idx !== pi
@@ -1181,6 +1186,12 @@ function App() {
                                   <button
                                     className="bg-red-600 text-white px-2 py-1 rounded ml-2"
                                     onClick={() => {
+                                      if (
+                                        !window.confirm(
+                                          "⚠️ ADVERTENCIA: Esta acción eliminará el partido del editor de jornada. ¿Deseas continuar?"
+                                        )
+                                      )
+                                        return;
                                       const partidos =
                                         newJornada.partidos.filter(
                                           (_, idx) => idx !== pi
